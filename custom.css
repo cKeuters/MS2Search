@@ -9,6 +9,17 @@
     border-radius: 0 0 8px 8px;
   }
 .app-title { margin: 0; font-weight: 300; color: #2c3e50; }
+
+#load_project_wrapper .input-group > input[type="text"] {
+  display: none;
+}
+#load_project_wrapper .progress {
+  display: none;
+}
+#load_project_wrapper .input-group {
+  width: auto;
+}
+
 .card {
   background: #ffffff;
   border-radius: 8px;

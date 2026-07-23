@@ -2,12 +2,21 @@ library(shiny)
 library(shinyFiles)
 library(shinyWidgets)
 library(bslib)
-library(qs) #loading and saving data
+
+#loading and saving data
+library(arrow)
+library(jsonlite)
+library(zip)
+
+#run_analysis
+library(Spectra)
+library(MsBackendMgf)
 
 options(shiny.maxRequestSize = 500 * 1024^2)
 #shiny::runApp( appDir = "CeraSearch/CeraSearch_Test/", launch.browser = TRUE)
 
 source("ui_helpers.R")
+source("run_analysis.R")
 
 #-------------------------------------------------------------------------------
 # Main Server
@@ -17,13 +26,29 @@ function(input, output, session) {
     screen = "welcome",
     out_dir = path.expand("~"),
     mode = "pos",
-    project_name = "",
-    MS2LDA = TRUE,
-    DreaMS = TRUE
+    project_name = ""
   )
   
-  rv <- reactiveValues(
-    cards = list())
+  basicFilterValues <- reactiveValues(
+    mz_min = 0,
+    mz_max = 1000,
+    mz_priority = "required",
+    rt_min = 0,
+    rt_max = 1000,
+    rt_priority = "required",
+    n_peaks_min = 0,
+    n_peaks_max = 1000,
+    n_peaks_priority = "required"
+  )
+  
+  ToolSettings <- reactiveValues(
+    LipidIN = TRUE,
+    LipidIN_ppm1 = 10,
+    LipidIN_ppm2 = 50,
+    LipidIN_priority = "basic",
+    DreaMS = TRUE,
+    DreaMS_priority = "basic"
+  )
   
   #------------------------------- Welcome Screen ---------------------------------------
   
@@ -48,59 +73,175 @@ function(input, output, session) {
   })
   
   # Load Project
-  observeEvent(input$load_project, {
-    req(input$load_project)
-    path <- as.character(parseDirPath(roots, input$load_project))
-    if (length(path) > 0 && nzchar(path)) {
-      state$out_dir <- path
-      state$project_name <- basename(path)
-      showNotification(paste("Loaded project:", path), type = "message")
-    }
+  observeEvent(input$load_project_file, {
+    req(input$load_project_file)
+    settings_list <- load_project_settings(input$load_project_file$datapath)
+    
+    pi <- settings_list$project_info
+    state$project_name <- pi$project_name
+    state$mode <- pi$mode
+    state$out_dir <- pi$out_dir
+    state$screen <- pi$screen
+    
+    li <- settings_list$LipidIN_settings
+    ToolSettings$LipidIN <- li$active
+    ToolSettings$LipidIN_priority <- li$priority
+    ToolSettings$LipidIN_ppm1 <- li$ppm1
+    ToolSettings$LipidIN_ppm2 <- li$ppm2
+    
+    dr <- settings_list$DreaMS_settings
+    ToolSettings$DreaMS <- dr$active
+    ToolSettings$DreaMS_priority <- dr$priority
+    
+    bf <- settings_list$basicFilters
+    basicFilterValues$mz_min <- bf$mz_min
+    basicFilterValues$mz_max <- bf$mz_max
+    basicFilterValues$mz_priority <- bf$mz_priority
+    basicFilterValues$rt_min <- bf$rt_min
+    basicFilterValues$rt_max <- bf$rt_max
+    basicFilterValues$rt_priority <- bf$rt_priority
+    basicFilterValues$n_peaks_min <- bf$n_peaks_min
+    basicFilterValues$n_peaks_max <- bf$n_peaks_max
+    basicFilterValues$n_peaks_priority <- bf$n_peaks_priority
+    
+    #remove existing cards
+    isolate({
+      for (cid in card_ids()) {
+        removeUI(selector = paste0("#wrap_card_", cid))
+        card_modules[[cid]] <- NULL
+      }
+      card_ids(character(0))
+      
+      #cards from json
+      loaded_cards <- settings_list$specific_filters
+      max_card_id <- 0
+      
+      if(!is.null(loaded_cards)){
+        for (c in loaded_cards) {
+          entries <- lapply(c$entries, function(e) {
+            list(id = as.numeric(e$id), value = e$value)
+          })
+          max_entry_id <- if (length(entries) == 0) 0 else max(sapply(entries, `[[`, "id"))
+          
+          card_init <- list(
+            id = as.numeric(c$id),
+            label = c$label,
+            input_type = c$input_type,
+            entries = entries,
+            next_entry_id = max_entry_id + 1,
+            min_repeat = c$min_repeat,
+            max_repeat = c$max_repeat,
+            just_after_precursor = isTRUE(c$just_after_precursor),
+            next_card_id = if (is.null(c$next_card_id)) NA else as.numeric(c$next_card_id)
+          )
+          
+          add_card_to_ui(card_init)
+          max_card_id <- max(max_card_id, card_init$id)
+        }
+      }
+      next_card_id(max_card_id + 1)
+    })
+    state$screen <- "analysis"
   })
   
   # States
   observeEvent(input$mode,         { state$mode <- input$mode })
   observeEvent(input$project_name, { state$project_name <- input$project_name })
   
-  # Start Analysis
+  # Start Rule and Filter selection
   observeEvent(input$start_analysis, {
+    if(input$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
     state$screen <- "analysis"
   })
   
   observeEvent(input$back_to_welcome, {
     state$screen <- "welcome"
   })
+
+  all_cards_data <- reactive({
+    ids <- card_ids()
+    if (length(ids) == 0) return(list())
+    lapply(ids, function(cid) card_modules[[cid]]())
+  })
+  
+  #Starting Analysis
+  filtered_result <- eventReactive(input$run_analysis, {
+    filterMS2data(input$ms2_file$datapath, all_cards_data())
+  })
+  
+  output$result_text <- renderText({
+    filtered_result()
+  })
   
   observeEvent(input$run_analysis, {
-    save_parameters(
+    setup_and_save_project(create_settings_list(
       state = reactiveValuesToList(state),
-      rv    = reactiveValuesToList(rv),
-      ppm1  = input$ppm1,
-      ppm2  = input$ppm2,
-      project_path = state$out_dir
+      basicFilterValues = reactiveValuesToList(basicFilterValues),
+      toolSettings = reactiveValuesToList(ToolSettings),
+      cards   = all_cards_data()), 
+      paste0(state$out_dir, "/", state$project_name,".zip")
     )
-    
     state$screen <- "results"
   })
-  
+
   observeEvent(input$save_project, {
-    save_parameters(
+    setup_and_save_project(create_settings_list(
       state = reactiveValuesToList(state),
-      rv    = reactiveValuesToList(rv),
-      ppm1  = input$ppm1,
-      ppm2  = input$ppm2,
-      project_path = state$out_dir
+      basicFilterValues = reactiveValuesToList(basicFilterValues),
+      toolSettings = reactiveValuesToList(ToolSettings),
+      cards   = all_cards_data()),
+      paste0(state$out_dir, "/", state$project_name,".zip")
     )
   })
   
-  observeEvent(input$MS2LDA_active, {
-    state$MS2LDA <- input$MS2LDA_active
+  #basic filter events
+  observeEvent(input$mz_min, {
+    basicFilterValues$mz_min <- input$mz_min
   })
-  observeEvent(input$DreaMS_active, {
-    state$DreaMS <- input$DreaMS_active
+  observeEvent(input$mz_max, {
+    basicFilterValues$mz_max <- input$mz_max
+  })
+  observeEvent(input$mz_priority, {
+    basicFilterValues$mz_priority <- input$mz_priority
+  })
+  observeEvent(input$rt_min, {
+    basicFilterValues$rt_min <- input$rt_min
+  })
+  observeEvent(input$rt_max, {
+    basicFilterValues$rt_max <- input$rt_max
+  })
+  observeEvent(input$rt_priority, {
+    basicFilterValues$rt_priority <- input$rt_priority
+  })
+  observeEvent(input$n_peaks_min, {
+    basicFilterValues$n_peaks_min <- input$n_peaks_min
+  })
+  observeEvent(input$n_peaks_max, {
+    basicFilterValues$n_peaks_max <- input$n_peaks_max
+  })
+  observeEvent(input$n_peaks_max, {
+    basicFilterValues$n_peaks_max <- input$n_peaks_max
+  })
+  observeEvent(input$n_peaks_priority, {
+    basicFilterValues$n_peaks_priority <- input$n_peaks_priority
   })
   
-  
+  #Tools setting events
+  observeEvent(input$LipidIN_active, {
+    ToolSettings$LipidIN <- input$LipidIN_active
+  })
+  observeEvent(input$LipidIN_ppm1, {
+    ToolSettings$LipidIN_ppm1 <- input$LipidIN_ppm1
+  })
+  observeEvent(input$LipidIN_ppm2, {
+    ToolSettings$LipidIN_ppm2 <- input$LipidIN_ppm2
+  })
+  observeEvent(input$LipidIN_priority, {
+    ToolSettings$LipidIN_priority <- input$LipidIN_priority
+  })
+  observeEvent(input$DreaMS_priority, {
+    ToolSettings$DreaMS_priority <- input$DreaMS_priority
+  })
   #------------------------------- Peak Filter Logic ---------------------------------------
   
   # Update card fields
@@ -125,18 +266,6 @@ function(input, output, session) {
     })
   }
   
-  # Sort cards reactive helper
-  sorted_cards <- reactive({
-    sort_mode <- if (!is.null(input$card_sort)) input$card_sort else "creation"
-    cards <- rv$cards
-    if (sort_mode == "mass") {
-      masses <- sapply(cards, resolve_mass)
-      ord <- order(masses, na.last = TRUE)
-      cards <- cards[ord]
-    }
-    cards
-  })
-  
   
   # Render peak filter cards
   cardModuleUI <- function(id, card, metabolite_choices) {
@@ -156,7 +285,7 @@ function(input, output, session) {
                 )
             ),
             div(class = "card-body",
-                createPriorityRadioButtons(ns("priority")),
+                createPriorityRadioButtons(ns("priority"), "basic"),
                 noUiSliderInput(
                   inputId = ns("slider"), label = "Number of losses",
                   min = 0, max = 10, value = c(card$min_repeat, card$max_repeat), step = 1,
@@ -184,9 +313,14 @@ function(input, output, session) {
       ns <- session$ns
       
       state <- reactiveValues(
-        id = initial$id, label = initial$label, input_type = initial$input_type,
-        min_repeat = initial$min_repeat, max_repeat = initial$max_repeat,
-        just_after_precursor = initial$just_after_precursor, sumOfSmall = initial$sumOfSmall, next_card_id = initial$next_card_id
+        id = initial$id, 
+        label = initial$label, 
+        input_type = initial$input_type,
+        min_repeat = initial$min_repeat, 
+        max_repeat = initial$max_repeat,
+        just_after_precursor = initial$just_after_precursor, 
+        sumOfSmall = initial$sumOfSmall, 
+        next_card_id = initial$next_card_id
       )
       
       entry_modules <- reactiveValues()
@@ -328,9 +462,11 @@ function(input, output, session) {
       tagList(
         div(class = "top-bar",
             h2(class = "app-title", "Cera Search Project - Setup"),
-            shinyDirButton("load_project", "Load Project",
-                           title = "Select existing project folder",
-                           icon = icon("folder-open"), class = "btn-default")
+            div(id = "load_project_wrapper",
+                fileInput("load_project_file", label = NULL, accept = ".zip",
+                          buttonLabel = tagList(icon("folder-open"), "Load Project"),
+                          placeholder = "")
+            )
         ),
         
         fluidRow(
@@ -440,15 +576,15 @@ function(input, output, session) {
                   class = "switch",
                   tags$input(
                     type = "checkbox",
-                    id = "MS2LDA_active",
-                    checked = if (state$MS2LDA) "checked" else NULL
+                    id = "LipidIN_active",
+                    checked = ToolSettings$LipidIN
                   ),
                   tags$span(class = "slider")
                 ),
-                div(class = if (!isTRUE(input$MS2LDA_active)) "disabled-div" , 
-                div(class = "card-title", "MS2LIPID",
-                    createInfoI("MS2LIPID_info","MS2LIPID is a tool")),
-                createPriorityRadioButtons("MS2Lipid_priority"),
+                div(class = if (!isTRUE(input$LipidIN_active)) "disabled-div" , 
+                div(class = "card-title", "LipidIN",
+                    createInfoI("LipidIN_info","LipidIN is a tool")),
+                createPriorityRadioButtons("LipidIN_priority", ToolSettings$LipidIN_priority),
                 tags$details(
                   tags$summary(
                     class = "advanced-settings",
@@ -456,8 +592,8 @@ function(input, output, session) {
                   ),
                   
                   br(),
-                  numericInput("ppm1", "ppm 1", value = 10),
-                  numericInput("ppm2", "ppm 2", value = 50)
+                  numericInput("LipidIN_ppm1", "ppm 1", value = ToolSettings$LipidIN_ppm1),
+                  numericInput("LipidIN_ppm2", "ppm 2", value = ToolSettings$LipidIN_ppm2)
                 )
                 
             )
@@ -469,17 +605,17 @@ function(input, output, session) {
                 div(class = "card-title", "Basic filters"
           ),
                 div(class = "flex_distance",
-                    div(class = "input-block",numericInput("mz_min", "m/z minimum", 0)),
-                    div(class = "input-block",numericInput("mz_max", "m/z maximum", 10000)),
-                    createPriorityRadioButtons("mz_priority", horizontal = FALSE)),
+                    div(class = "input-block",numericInput("mz_min", "m/z minimum",  basicFilterValues$mz_min)),
+                    div(class = "input-block",numericInput("mz_max", "m/z maximum", basicFilterValues$mz_max)),
+                    createPriorityRadioButtons("mz_priority", basicFilterValues$mz_priority, horizontal = FALSE)),
                 div(class = "flex_distance",
-                    div(class = "input-block",numericInput("rt_min", "RT minimum", 0)),
-                    div(class = "input-block",numericInput("rt_max", "RT maximum", 10000)),
-                    createPriorityRadioButtons("rt_priority", horizontal = FALSE)),
+                    div(class = "input-block",numericInput("rt_min", "RT minimum (in seconds)", basicFilterValues$rt_min)),
+                    div(class = "input-block",numericInput("rt_max", "RT maximum (in seconds)", basicFilterValues$rt_max)),
+                    createPriorityRadioButtons("rt_priority",basicFilterValues$rt_priority, horizontal = FALSE)),
                 div(class = "flex_distance",
-                    div(class = "input-block", numericInput("peakCount_min", "minimum number of peaks", 0)),
-                    div(class = "input-block", numericInput("peakCount_max", "maximum number of peaks", 10000)),
-                    createPriorityRadioButtons("peakCount_priority", horizontal = FALSE))
+                    div(class = "input-block", numericInput("n_peaks_min", "minimum number of peaks", basicFilterValues$n_peaks_min)),
+                    div(class = "input-block", numericInput("n_peaks_max", "maximum number of peaks", basicFilterValues$n_peaks_max)),
+                    createPriorityRadioButtons("n_peaks_priority",basicFilterValues$n_peaks_priority, horizontal = FALSE))
             ) 
           ),
           column(
@@ -490,7 +626,7 @@ function(input, output, session) {
                   tags$input(
                     type = "checkbox",
                     id = "DreaMS_active",
-                    checked = if (state$DreaMS) "checked" else NULL
+                    checked = if (ToolSettings$DreaMS) "checked" else NULL
                   ),
                   tags$span(class = "slider")
                 ),
@@ -498,7 +634,7 @@ function(input, output, session) {
                 div(class = "card-title", "DreaMS",
                     createInfoI("DreaMS_info","DreaMS is a tool")),
                 
-                createPriorityRadioButtons("DreaMS_priority"),
+                createPriorityRadioButtons("DreaMS_priority", ToolSettings$DreaMS_priority),
                 
                 tags$details(
                   tags$summary(
@@ -544,10 +680,15 @@ function(input, output, session) {
       tagList(
         div(class = "top-bar",
             h2(class = "app-title", "Cera Search Project - Results"),
-            shinyDirButton("load_project", "Load Project",
-                           title = "Select existing project folder",
-                           icon = icon("folder-open"), class = "btn-default")
-        )
+            div(
+              shinyDirButton("save_project", "Save Project",
+                             title = "Save current project",
+                             icon = icon("folder-open"), class = "btn-default"),
+              actionButton("back_to_welcome", "Return to Setup",
+                           icon = icon("house"), class = "btn-default")
+            )
+          ),
+        textOutput("result_text", inline = TRUE)
       )
     }
   })
