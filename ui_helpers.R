@@ -38,6 +38,7 @@ createInfoI <- function(id, info) {
          var initTooltip = function() {
            $('#", id, "').tooltip({
              html: true,
+             sanitize: false,
              title: ", info_js, ",
              trigger: 'hover focus click'
            });
@@ -63,11 +64,12 @@ empty_card <- function(id) {
     label = paste("Peak filter", id),
     input_type = "mass",
     entries = list(empty_entry(1)),
-    next_entry_id = 2,
+    next_entry_sc_mod_id = 2,
     min_repeat = 0,
     max_repeat = 1,
     just_after_precursor = FALSE,
     sumOfSmall = FALSE,
+    sequential = FALSE,
     priority = 1,
     next_card_id = NA
   )
@@ -82,6 +84,175 @@ resolve_mass <- function(card) {
   idx <- which(METABOLITES$name == card$value)
   if (length(idx) == 1) return(METABOLITES$mass[idx])
   NA
+}
+
+
+#-------- Lipid Definition -----------------
+
+#Side chain card
+sidechainCardUI <- function(id, index) {
+  ns <- NS(id)
+  
+  div(
+    class = "sidechain-card",
+    div(class = "sidechain-title", paste("Sidechain", index)),
+    numericInput(
+      inputId = ns(paste0("carbon_", index)),
+      label = "Carbon atoms",
+      value = 16,
+      min = 0,
+      step = 1
+    ),
+    numericInput(
+      inputId = ns(paste0("doublebonds_", index)),
+      label = "Double bonds",
+      value = 0,
+      min = 0,
+      step = 1
+    ),
+    actionButton(ns("add_entry_sidechain_mod"), "Add Modification", icon = icon("plus"), class = "btn-sm"),
+    
+  )
+}
+
+#ui for lipid definition
+lipidDefinitionUI <- function(id) {
+  ns <- NS(id)
+  
+  div(
+    class = "lipid-definition-card",
+    div(class = "card-title", "Lipid Definition"),
+    
+    div(
+      class = "lipid-form-row",
+      div(
+        class = "headgroup-input",
+        textInput(
+          inputId = ns("headgroup_formula"),
+          label = "Headgroup formula",
+          value = "",
+          placeholder = "e.g. C3H9O6P"
+        )
+      ),
+      div(
+        class = "number-input",
+        numericInput(
+          inputId = ns("num_sidechains"),
+          label = "Number of sidechains",
+          value = 2,
+          min = 0,
+          max = 10,
+          step = 1
+        )
+      )
+    ),
+    
+    div(
+      class = "lipid-modifications",
+      textInput(
+        inputId = ns("modifications"),
+        label = "Add possible modifications to formula",
+        value = "",
+        placeholder = "e.g. +H2O, -NH3"
+      )
+    ),
+    
+    uiOutput(ns("sidechains_ui")),
+    
+    tags$details(
+      class = "lipid-advanced",
+      tags$summary("Advanced settings"),
+      div(
+        class = "advanced-content",
+        div(
+          class = "advanced-regression",
+          numericInput(ns("reg_param1"), "Regression parameter 1", value = 0),
+          numericInput(ns("reg_param2"), "Regression parameter 2", value = 0),
+          numericInput(ns("reg_param3"), "Regression parameter 3", value = 0),
+          numericInput(ns("reg_param4"), "Regression parameter 4", value = 0)
+        ),
+        div(
+          class = "lipid-ionnotations",
+          selectInput(
+            inputId = ns("ionnotations"),
+            label = "Possible ionnotations",
+            choices = c("[M+H]+", "[M+Na]+", "[M-H]-", "[M+NH4]+", "[M+K]+"),
+            selected = "[M+H]+",
+            multiple = TRUE
+          )
+        )
+      )
+    )
+  )
+}
+
+lipidDefinitionServer <- function(id, initial) {
+  moduleServer(id, function(input, output, session) {
+    
+    entry_modules_sc_mod <- reactiveValues()
+    entry_sc_mod_ids <- reactiveVal(character(0))
+    next_entry_sc_mod_id <- reactiveVal(initial)
+    
+    add_entry_sidechain_mod <- function(entry_init) {
+      message("add_entry_sidechain_mod called with: ", entry_init$id, " / ", entry_init$value)
+      eid <- as.character(entry_init$id)
+      insertUI(
+        selector = paste0("#", ns("entries_container")), where = "beforeEnd",
+        ui = div(id = ns(paste0("entry_wrap_", eid)),
+                 entryModuleUI(ns(paste0("entry_", eid)), entry_init, rule_state$input_type, metabolite_choices))
+      )
+      entry_modules_sc_mod[[eid]] <- entryModuleServer(paste0("entry_", eid), entry_init, remove_entry)
+      entry_sc_mod_ids(c(entry_sc_mod_ids(), eid))
+    }
+    
+    remove_entry_sidechain_mod <- function(eid) {
+      eid <- as.character(eid)
+      if (length(entry_sc_mod_ids()) <= 1) return(invisible())  # mind. 1 Zeile behalten
+      removeUI(selector = paste0("#", ns(paste0("entry_wrap_", eid))))
+      entry_modules_sc_mod[[eid]] <- NULL
+      entry_sc_mod_ids(setdiff(entry_sc_mod_ids(), eid))
+    }
+    
+    current_entries_sc_mod <- reactive({
+      lapply(entry_sc_mod_ids(), function(eid) entry_modules_sc_mod[[eid]]())
+    })
+    
+    output$sidechains_ui <- renderUI({
+      req(input$num_sidechains)
+      n <- as.integer(input$num_sidechains)
+      
+      if (is.na(n) || n <= 0) return(NULL)
+      
+      div(
+        class = "sidechains-container",
+        lapply(seq_len(n), function(i) {
+          sidechainCardUI(id, i)
+        })
+      )
+    })
+    
+    # Optional: Reaktive Liste aller Sidechain-Werte zurückgeben
+    sidechain_values <- reactive({
+      req(input$num_sidechains)
+      n <- as.integer(input$num_sidechains)
+      
+      lapply(seq_len(n), function(i) {
+        list(
+          carbons = input[[paste0("carbon_", i)]],
+          double_bonds = input[[paste0("doublebonds_", i)]]
+        )
+      })
+    })
+    
+    return(list(
+      headgroup = reactive(input$headgroup_formula),
+      modifications = reactive(input$modifications),
+      num_sidechains = reactive(input$num_sidechains),
+      sidechains = sidechain_values,
+      regression_params = reactive(c(input$reg_param1, input$reg_param2, input$reg_param3, input$reg_param4)),
+      ionnotations = reactive(input$ionnotations)
+    ))
+  })
 }
 
 #-------------------------------------------------------------------------------
@@ -118,7 +289,9 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards){
       rt_priority = basicFilterValues$rt_priority,
       n_peaks_min = basicFilterValues$n_peaks_min ,
       n_peaks_max = basicFilterValues$n_peaks_max,
-      n_peaks_priority = basicFilterValues$n_peaks_priority
+      n_peaks_priority = basicFilterValues$n_peaks_priority,
+      tolerance_ppm = basicFilterValues$tolerance_ppm,
+      minimum_dalton = basicFilterValues$minimum_dalton
     )
   )
   settings_list <- c(

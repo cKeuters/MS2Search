@@ -11,6 +11,7 @@ library(zip)
 #run_analysis
 library(Spectra)
 library(MsBackendMgf)
+library(SpectraQL)
 
 options(shiny.maxRequestSize = 500 * 1024^2)
 #shiny::runApp( appDir = "CeraSearch/CeraSearch_Test/", launch.browser = TRUE)
@@ -38,7 +39,9 @@ function(input, output, session) {
     rt_priority = "required",
     n_peaks_min = 0,
     n_peaks_max = 1000,
-    n_peaks_priority = "required"
+    n_peaks_priority = "required",
+    tolerance_ppm = 10,
+    minimum_dalton = 0.01
   )
   
   ToolSettings <- reactiveValues(
@@ -49,6 +52,8 @@ function(input, output, session) {
     DreaMS = TRUE,
     DreaMS_priority = "basic"
   )
+  
+  lipid_data <- lipidDefinitionServer("lipid", 1)
   
   #------------------------------- Welcome Screen ---------------------------------------
   
@@ -103,6 +108,8 @@ function(input, output, session) {
     basicFilterValues$n_peaks_min <- bf$n_peaks_min
     basicFilterValues$n_peaks_max <- bf$n_peaks_max
     basicFilterValues$n_peaks_priority <- bf$n_peaks_priority
+    basicFilterValues$tolerance_ppm <- bf$tolerance_ppm
+    basicFilterValues$minimum_dalton <- bf$minimum_dalton
     
     #remove existing cards
     isolate({
@@ -132,6 +139,8 @@ function(input, output, session) {
             min_repeat = c$min_repeat,
             max_repeat = c$max_repeat,
             just_after_precursor = isTRUE(c$just_after_precursor),
+            sumOfSmall = isTRUE(c$sumOfSmall),
+            sequential = isTRUE(c$sequential),
             next_card_id = if (is.null(c$next_card_id)) NA else as.numeric(c$next_card_id)
           )
           
@@ -158,11 +167,13 @@ function(input, output, session) {
     state$screen <- "welcome"
   })
 
+  #rule cards
   all_cards_data <- reactive({
     ids <- card_ids()
     if (length(ids) == 0) return(list())
     lapply(ids, function(cid) card_modules[[cid]]())
   })
+  
   
   #Starting Analysis
   filtered_result <- eventReactive(input$run_analysis, {
@@ -174,13 +185,13 @@ function(input, output, session) {
   })
   
   observeEvent(input$run_analysis, {
-    setup_and_save_project(create_settings_list(
-      state = reactiveValuesToList(state),
-      basicFilterValues = reactiveValuesToList(basicFilterValues),
-      toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data()), 
-      paste0(state$out_dir, "/", state$project_name,".zip")
-    )
+    # setup_and_save_project(create_settings_list(
+    #   state = reactiveValuesToList(state),
+    #   basicFilterValues = reactiveValuesToList(basicFilterValues),
+    #   toolSettings = reactiveValuesToList(ToolSettings),
+    #   cards   = all_cards_data()), 
+    #   paste0(state$out_dir, "/", state$project_name,".zip")
+    # )
     state$screen <- "results"
   })
 
@@ -193,6 +204,21 @@ function(input, output, session) {
       paste0(state$out_dir, "/", state$project_name,".zip")
     )
   })
+  
+  MS2file_info <- reactive({
+    if (is.null(input$ms2_file)) {
+      NULL
+    } else {
+      input$ms2_file$name
+    }
+  })
+  
+  output$MS2file_info <- renderText({
+    MS2file_info()
+  })
+  
+  
+  #--------------------------- observeEvent for variables -----------------------------
   
   #basic filter events
   observeEvent(input$mz_min, {
@@ -239,9 +265,23 @@ function(input, output, session) {
   observeEvent(input$LipidIN_priority, {
     ToolSettings$LipidIN_priority <- input$LipidIN_priority
   })
+  observeEvent(input$DreaMS_active, {
+    ToolSettings$DreaMS <- input$DreaMS_active
+  })
   observeEvent(input$DreaMS_priority, {
     ToolSettings$DreaMS_priority <- input$DreaMS_priority
   })
+  
+  #Tolerance
+  
+  observeEvent(input$tolerance_ppm, {
+    basicFilterValues$tolerance_ppm <- input$tolerance_ppm
+  })
+  
+  observeEvent(input$minimum_dalton, {
+    basicFilterValues$minimum_dalton <- input$minimum_dalton
+  })
+  
   #------------------------------- Peak Filter Logic ---------------------------------------
   
   # Update card fields
@@ -253,7 +293,7 @@ function(input, output, session) {
         } else {
           selectInput(ns("value"), NULL, choices = metabolite_choices, selected = entry$value)
         },
-        actionButton(ns("remove"), NULL, icon = icon("times"), class = "btn-sm btn-outline-danger")
+        actionButton(ns("remove"), NULL, icon = icon("times"), class = "btn-sm btn-outline-danger", style = "margin-bottom: 15px;")
     )
   }
   
@@ -285,11 +325,16 @@ function(input, output, session) {
                 )
             ),
             div(class = "card-body",
-                createPriorityRadioButtons(ns("priority"), "basic"),
+                checkboxInput(ns("sequential"), "Sequential neutral losses", value = card$sequential),
                 noUiSliderInput(
-                  inputId = ns("slider"), label = "Number of losses",
-                  min = 0, max = 10, value = c(card$min_repeat, card$max_repeat), step = 1,
-                  format = wNumbFormat(decimals = 0), tooltips = TRUE,
+                  inputId = ns("slider"),
+                  label = "Number of losses",
+                  min = 0,
+                  max = 10,
+                  value = c(card$min_repeat, card$max_repeat),
+                  step = 1,
+                  format = wNumbFormat(decimals = 0),
+                  tooltips = TRUE,
                   pips = list(mode = "values", values = list(0, 10), density = 10),
                   color = "#337ab7"
                 ),
@@ -301,7 +346,8 @@ function(input, output, session) {
                 uiOutput(ns("mass_preview")),
             
                 checkboxInput(ns("precursor"), "Just after precursor", value = card$just_after_precursor),
-                checkboxInput(ns("sumOfSmall"), "Validation by sum of smaller peaks", value = card$sumOfSmall)
+                checkboxInput(ns("sumOfSmall"), "Validation by sum of smaller peaks", value = card$sumOfSmall),
+                div(style = "text-align: center;", createPriorityRadioButtons(ns("priority"), "basic"))
                 
             )
         )
@@ -312,7 +358,7 @@ function(input, output, session) {
     moduleServer(id, function(input, output, session) {
       ns <- session$ns
       
-      state <- reactiveValues(
+      rule_state <- reactiveValues(
         id = initial$id, 
         label = initial$label, 
         input_type = initial$input_type,
@@ -320,6 +366,7 @@ function(input, output, session) {
         max_repeat = initial$max_repeat,
         just_after_precursor = initial$just_after_precursor, 
         sumOfSmall = initial$sumOfSmall, 
+        sequential = initial$sequential,
         next_card_id = initial$next_card_id
       )
       
@@ -327,13 +374,17 @@ function(input, output, session) {
       entry_ids <- reactiveVal(character(0))
       next_entry_id <- reactiveVal(initial$next_entry_id)
       
+        observeEvent(input$sequential, {
+        shinyjs::toggle(id = "slider", condition = input$sequential)
+      }, ignoreNULL = FALSE)
+          
       add_entry <- function(entry_init) {
         message("add_entry called with: ", entry_init$id, " / ", entry_init$value)
         eid <- as.character(entry_init$id)
         insertUI(
           selector = paste0("#", ns("entries_container")), where = "beforeEnd",
           ui = div(id = ns(paste0("entry_wrap_", eid)),
-                   entryModuleUI(ns(paste0("entry_", eid)), entry_init, state$input_type, metabolite_choices))
+                   entryModuleUI(ns(paste0("entry_", eid)), entry_init, rule_state$input_type, metabolite_choices))
         )
         entry_modules[[eid]] <- entryModuleServer(paste0("entry_", eid), entry_init, remove_entry)
         entry_ids(c(entry_ids(), eid))
@@ -348,9 +399,9 @@ function(input, output, session) {
       }
       
       observeEvent(input$input_type, {
-        if (identical(input$input_type, isolate(state$input_type))) return()
+        if (identical(input$input_type, isolate(rule_state$input_type))) return()
         
-        state$input_type <- input$input_type
+        rule_state$input_type <- input$input_type
         old_ids <- entry_ids()
         for (eid in old_ids) {
           removeUI(selector = paste0("#", ns(paste0("entry_wrap_", eid))))
@@ -363,23 +414,24 @@ function(input, output, session) {
       
       isolate({ for (e in initial$entries) add_entry(e) })
       
-      observeEvent(input$label, state$label <- input$label, ignoreInit = TRUE)
-      observeEvent(input$priority, state$priority <- input$priority, ignoreInit = TRUE)
-      observeEvent(input$precursor, state$just_after_precursor <- isTRUE(input$precursor), ignoreInit = TRUE)
-      observeEvent(input$sumOfSmall, state$sumOfSmall <- isTRUE(input$sumOfSmall), ignoreInit = TRUE)
+      observeEvent(input$label, rule_state$label <- input$label, ignoreInit = TRUE)
+      observeEvent(input$priority, rule_state$priority <- input$priority, ignoreInit = TRUE)
+      observeEvent(input$precursor, rule_state$just_after_precursor <- isTRUE(input$precursor), ignoreInit = TRUE)
+      observeEvent(input$sumOfSmall, rule_state$sumOfSmall <- isTRUE(input$sumOfSmall), ignoreInit = TRUE)
+      observeEvent(input$sequential, rule_state$sequential <- isTRUE(input$sequential), ignoreInit = TRUE)
       
       observeEvent(input$slider, {
         req(input$slider)
-        state$min_repeat <- input$slider[1]
-        state$max_repeat <- input$slider[2]
+        rule_state$min_repeat <- input$slider[1]
+        rule_state$max_repeat <- input$slider[2]
       }, ignoreInit = TRUE, priority = 1)
       observeEvent(input$add_entry, {
         eid <- next_entry_id()
         add_entry(list(id = eid, value = ""))
         next_entry_id(eid + 1)
       })
-      observeEvent(input$duplicate, on_duplicate(state$id))
-      observeEvent(input$delete, on_delete(state$id))
+      observeEvent(input$duplicate, on_duplicate(rule_state$id))
+      observeEvent(input$delete, on_delete(rule_state$id))
       
       current_entries <- reactive({
         lapply(entry_ids(), function(eid) entry_modules[[eid]]())
@@ -387,23 +439,42 @@ function(input, output, session) {
       
       output$mass_preview <- renderUI({
         masses <- vapply(current_entries(), function(e) {
-          resolve_mass(list(input_type = state$input_type, value = e$value))  # nutzt deine bestehende resolve_mass()
+          resolve_mass(list(input_type = rule_state$input_type, value = e$value))  # nutzt deine bestehende resolve_mass()
         }, numeric(1))
         masses <- masses[!is.na(masses)]
         if (length(masses) == 0) return(NULL)
 
         tagList(
-          div(class = "mass-preview", HTML(paste("Resolved mass(es):", paste(round(masses, 4), collapse = ", ")))),
+          div(
+            class = "mass-preview",
+            "Resolved mass(es): ",
+            createInfoI(
+              "Mass_preview_info",
+              paste0(
+                "<span class='peak-badge positive'>Peak</span> ",
+                "values are positive.<br>",
+                "<span class='peak-badge negative'>Neutral Loss</span> ",
+                "values are negative."
+              )
+            ),
+            lapply(masses, function(m) {
+              span(
+                class = if (m >= 0) "peak-badge positive" else "peak-badge negative",
+                round(m, 4)
+              )
+            })
+          ),
           br()
         )
       })
 
       
       reactive({
-        list(id = state$id, label = state$label, input_type = state$input_type,
+        list(id = rule_state$id, label = rule_state$label, input_type = rule_state$input_type,
              entries = current_entries(), next_entry_id = next_entry_id(),
-             min_repeat = state$min_repeat, max_repeat = state$max_repeat,
-             just_after_precursor = state$just_after_precursor, sumOfSmall = state$sumOfSmall, next_card_id = state$next_card_id)
+             min_repeat = rule_state$min_repeat, max_repeat = rule_state$max_repeat,
+             just_after_precursor = rule_state$just_after_precursor, sumOfSmall = rule_state$sumOfSmall, 
+             sequential = rule_state$sequential, next_card_id = rule_state$next_card_id)
       })
     }, session = parent_session)
   }
@@ -474,9 +545,16 @@ function(input, output, session) {
                  div(class = "card required-card",
                      div(class = "required-badge", "Required"),
                      div(class = "card-title", "Required Inputs"),
+                     div(
+                       style = "margin-left: auto; min-width: 150px;",
+                       fileInput("ms2_file", "MS2 Data", placeholder = ifelse(is.null(MS2file_info()),"No file selected", MS2file_info()),
+                                 accept = c(".mgf", ".msp", ".mzmine", ".mzHub")),
+                       div(
+                         style = "text-align: right;",
+                         textOutput("MS2file_info", inline = TRUE)
+                       )
+                     ),
                      
-                     fileInput("ms2_file", "MS2 Data",
-                               accept = c(".mgf", ".msp", ".mzmine")),
                      selectInput("mode", "Ionization Mode",
                                  choices = c("Positive" = "pos", "Negative" = "neg"),
                                  selected = state$mode),
@@ -491,32 +569,27 @@ function(input, output, session) {
                        )
                      )
                      
-                 )
+                 ),
+                actionButton("start_analysis", "Start Analysis",
+                             class = "btn-primary btn-lg start-btn")
+         
           ),
           
           column(6,
                  div(class = "card optional-card",
                      div(class = "optional-badge", "Optional"),
                      div(class = "card-title", "Optional Inputs"),
-                     
+                     textInput("project_name", "Project Name",
+                               value = state$project_name,
+                               placeholder = "My Project"),
                      fileInput("ms1_file", "MS1 Data (CSV)", accept = c(".csv")),
                      
                      fileInput("sirius_file", "Sirius Annotation",
                                accept = c(".csv", ".tsv")),
                      
-                     fileInput("rules_file", "Mass Rules (CSV)", accept = c(".csv")),
-                     
-                     textInput("project_name", "Project Name",
-                               value = state$project_name,
-                               placeholder = "My Project")
+                     fileInput("rules_file", "Mass Rules (json)", accept = c(".json"))
+                    
                  )
-          )
-        ),
-        
-        fluidRow(
-          column(12, align = "center",
-                 actionButton("start_analysis", "Start Analysis",
-                              class = "btn-primary btn-lg start-btn")
           )
         )
       )
@@ -527,9 +600,8 @@ function(input, output, session) {
         div(class = "top-bar",
             h2(class = "app-title", "Cera Search Project - Analysis"),
             div(
-              shinyDirButton("save_project", "Save Project",
-                             title = "Save current project",
-                             icon = icon("folder-open"), class = "btn-default"),
+              actionButton("save_project", "Save Project",
+                           icon = icon("folder-open"), class = "btn-default"),
               actionButton("back_to_welcome", "Return to Setup",
                            icon = icon("house"), class = "btn-default")
             )
@@ -570,6 +642,10 @@ function(input, output, session) {
         # ----- Filters -----
         fluidRow(
           column(
+            width = 12,
+            lipidDefinitionUI("lipid")
+          ),
+          column(
             width = 4,
             div(class = "card analysis-card",
                 tags$label(
@@ -577,7 +653,7 @@ function(input, output, session) {
                   tags$input(
                     type = "checkbox",
                     id = "LipidIN_active",
-                    checked = ToolSettings$LipidIN
+                    checked = if (ToolSettings$LipidIN) "checked" else NULL
                   ),
                   tags$span(class = "slider")
                 ),
@@ -661,7 +737,11 @@ function(input, output, session) {
               actionButton("add_card", "Add peak filter", icon = icon("plus"), class = "btn-primary"),
               selectInput("card_sort", "Order by",
                                         choices = c("Creation time" = "creation", "Mass" = "mass"),
-                                        selected = "creation")),
+                                        selected = "creation",
+                          , width = "140px"),
+              numericInput("tolerance_ppm", "Tolerance (ppm)", value = basicFilterValues$tolerance_ppm, width = "140px"),
+              numericInput("minimum_dalton", "Minimum Dalton", value = basicFilterValues$minimum_dalton, width = "140px")),
+            
             hr(),
             div(id = "cards_container", class = "cards-container")
             
