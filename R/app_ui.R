@@ -3,14 +3,44 @@
 #' @param request Internal parameter for `{shiny}`.
 #'     DO NOT REMOVE.
 #' @import shiny
+#' @import shinyFiles
+#' @import shinyWidgets
+#' @import splines
 #' @noRd
 app_ui <- function(request) {
 	tagList(
 		# Leave this function for adding external resources
 		golem_add_external_resources(),
-		# Your application UI logic
+		shinyjs::useShinyjs(),
 		fluidPage(
-			golem::golem_welcome_page() # Remove this line to start building your UI
+		  tags$link(rel = "stylesheet", type = "text/css", href = "www/custom.css"),
+		    
+		    # --- Welcome Screen ---
+		    shinyjs::hidden(
+		      div(id = "welcome_screen", uiOutput("welcome_ui"))
+		    ),
+		    
+		    # --- Analysis Screen ---
+		  shinyjs::hidden(div(id = "analysis_screen",
+		        uiOutput("analysis_header_ui"), 
+		        shinyjs::hidden(
+		          div(id = "cards_section",
+		              uiOutput("rule_coordination"),
+		              uiOutput("cards_ui", class = "cards-container")
+		        ),
+		        shinyjs::hidden(
+		          div(id = "analysis_footer",
+		              fluidRow(column(12, align = "center",
+		                              actionButton("run_analysis", "Run Analysis", class = "btn-primary btn-lg start-btn")))
+		          )
+		       ) )
+		      )
+		    ),
+		  # --- Results Screen ---
+		  shinyjs::hidden(
+		    div(id = "results_screen", uiOutput("results_ui"))
+		  )
+		
 		)
 	)
 }

@@ -26,7 +26,8 @@ golem::add_module(name = "LipidDefinition", with_test = TRUE) # Name of the modu
 ## Add helper functions ----
 ## Creates fct_* and utils_*
 golem::add_fct("helpers", with_test = TRUE)
-golem::add_utils("helpers", with_test = TRUE)
+golem::add_utils("ui", with_test = TRUE)
+golem::add_utils("server", with_test = TRUE)
 
 ## External resources
 ## Creates .js and .css files at inst/app/www

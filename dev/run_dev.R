@@ -11,5 +11,7 @@ golem::detach_all_attached()
 # Document and reload your package
 golem::document_and_reload()
 
+#devtools::load_all()
+
 # Run the application
 run_app()
