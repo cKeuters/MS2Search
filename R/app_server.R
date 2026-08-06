@@ -200,11 +200,13 @@ app_server <- function(input, output, session) {
   
   # Button Return to Setup
   observeEvent(input$back_to_welcome, {
+    add_log("----------- Return to Setup -------------")
     state$screen <- "welcome"
   })
   
   #Button run analysis
   observeEvent(input$run_analysis, {
+    
     state$screen <- "results"
   })
   
@@ -287,6 +289,18 @@ app_server <- function(input, output, session) {
     next_card_id(id + 1)
   })
   
+  # add_card_to_ui <- function(card_init) {
+  #   cid <- as.character(card_init$id)
+  #   card_modules[[cid]] <- mod_Rules_server(
+  #     paste0("card_", cid), card_init,
+  #     on_delete = delete_card_by_id,
+  #     on_duplicate = duplicate_card_by_id,
+  #     metabolite_choices = METABOLITES$name,
+  #     parent_session = session    
+  #   )
+  #   card_ids(c(card_ids(), cid))
+  # }
+  
   add_card_to_ui <- function(card_init) {
     cid <- as.character(card_init$id)
     card_modules[[cid]] <- mod_Rules_server(
@@ -297,6 +311,13 @@ app_server <- function(input, output, session) {
       parent_session = session    
     )
     card_ids(c(card_ids(), cid))
+    
+    insertUI(
+      selector = "#cards_container",
+      where = "beforeEnd",
+      ui = div(id = paste0("wrap_card_", cid),
+               mod_Rules_ui(paste0("card_", cid), card_init, METABOLITES$name))
+    )
   }
   
   delete_card_by_id <- function(id) {
@@ -317,28 +338,35 @@ app_server <- function(input, output, session) {
     next_card_id(new_id + 1)
   }
   
-  # UI rendern
-  output$cards_ui <- renderUI({
-    cds <- all_cards_data()
-
-    if (length(cds) == 0) return(NULL)
-    
-    lapply(cds, function(card) {
-      mod_Rules_ui(paste0("card_", card$id), card, METABOLITES$name)
-    })
-  })
+  # # UI rendern
+  # output$cards_ui <- renderUI({
+  #   ids <- card_ids()
+  #   if (length(ids) == 0) return(NULL)
+  #   
+  #   lapply(ids, function(cid) {
+  #     initial_card <- isolate(card_modules[[cid]]())
+  #     mod_Rules_ui(paste0("card_", initial_card$id), initial_card, METABOLITES$name)
+  #   })
+  # })
   
   
   #-----------------------------------------------------------------------------
   # Results
   #-----------------------------------------------------------------------------
   
-  filtered_result <- eventReactive(input$run_analysis, {
-    filterMS2data(input$ms2_file$datapath, all_cards_data())
+  output$log <- renderText(log_text())
+  
+  results <- eventReactive(input$run_analysis, {
+    settings <- create_settings_list(
+      state = reactiveValuesToList(state),
+      basicFilterValues = reactiveValuesToList(basicFilterValues),
+      toolSettings = reactiveValuesToList(ToolSettings),
+      cards   = all_cards_data())
+    run_analysis(settings, input$ms2_file$datapath)
   })
   
   output$result_text <- renderText({
-    filtered_result()
+    results()
   })
   
   
@@ -482,15 +510,15 @@ app_server <- function(input, output, session) {
           div(class = "card analysis-card",
               div(class = "card-title", "Basic filters"
               ),
-              div(class = "flex_distance",
+              div(class = "flex-distance",
                   div(class = "input-block",numericInput("mz_min", "m/z minimum",  basicFilterValues$mz_min)),
                   div(class = "input-block",numericInput("mz_max", "m/z maximum", basicFilterValues$mz_max)),
                   createPriorityRadioButtons("mz_priority", basicFilterValues$mz_priority, horizontal = FALSE)),
-              div(class = "flex_distance",
+              div(class = "flex-distance",
                   div(class = "input-block",numericInput("rt_min", "RT minimum (in seconds)", basicFilterValues$rt_min)),
                   div(class = "input-block",numericInput("rt_max", "RT maximum (in seconds)", basicFilterValues$rt_max)),
                   createPriorityRadioButtons("rt_priority",basicFilterValues$rt_priority, horizontal = FALSE)),
-              div(class = "flex_distance",
+              div(class = "flex-distance",
                   div(class = "input-block", numericInput("n_peaks_min", "minimum number of peaks", basicFilterValues$n_peaks_min)),
                   div(class = "input-block", numericInput("n_peaks_max", "maximum number of peaks", basicFilterValues$n_peaks_max)),
                   createPriorityRadioButtons("n_peaks_priority",basicFilterValues$n_peaks_priority, horizontal = FALSE))
@@ -543,12 +571,14 @@ app_server <- function(input, output, session) {
       numericInput("tolerance_ppm", "Tolerance (ppm)", value = basicFilterValues$tolerance_ppm, width = "140px"),
       numericInput("minimum_dalton", "Minimum Dalton", value = basicFilterValues$minimum_dalton, width = "140px")
   ),
-  hr())
+  hr(),
+  div(id="cards_container", class = "cards-container"))
 })
   
   output$results_ui <- renderUI({ 
     tagList(
       create_topbar_InProject(),
+      verbatimTextOutput("log"),
       textOutput("result_text", inline = TRUE)
     )
     })

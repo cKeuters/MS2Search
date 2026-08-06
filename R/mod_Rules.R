@@ -3,7 +3,6 @@
 #' @description A shiny Module.
 #'
 #' @param id, card, metabolite_choices, input,output,session Internal parameters for {shiny}.
-#'
 #' @noRd 
 #'
 #' @importFrom shiny NS tagList 
@@ -23,35 +22,36 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
               )
           ),
           div(class = "card-body",
-              checkboxInput(ns("sequential"), "Sequential neutral losses", value = card$sequential),
-              noUiSliderInput(
-                inputId = ns("slider"),
-                label = "Number of losses",
-                min = 0,
-                max = 10,
-                value = c(card$min_repeat, card$max_repeat),
-                step = 1,
-                format = wNumbFormat(decimals = 0),
-                tooltips = TRUE,
-                pips = list(mode = "values", values = list(0, 10), density = 10),
-                color = "#337ab7"
-              ),
+              div(class = "flex-distance",
+                  div(class = "toggle-switch",
+                   tags$input(type = "checkbox", id = ns("peakToggle"), checked = if (isTRUE(card$is_mzPeak)) "checked" else NULL),
+                   div(class = "toggle-slider"),
+                   div(class = "toggle-labels",
+                       span(class = "toggle-label-left", "Neutral loss"),
+                       span(class = "toggle-label-right", "m/z peak")
+                   )
+              )),
+              
+              # --- Mass entries ---
               selectInput(ns("input_type"), "Input type",
                           choices = c("Exact mass" = "mass", "Metabolite name" = "metabolite"),
                           selected = card$input_type),
-              #uiOutput(ns("mass_entry_ui")),
-              div(id = ns("entries_container"), class = "entries-container",
-                  lapply(card$entries, function(entry) {
-                    eid <- as.character(entry$id)
-                    div(id = ns(paste0("entry_wrap_", eid)),
-                        entryModuleUI(ns(paste0("entry_", eid)), entry, card$input_type, metabolite_choices))
-                  })
-              ),
-              #div(id = ns("entries_container"), class = "entries-container"),
+              uiOutput(ns("entries_ui")),
+              
               actionButton(ns("add_entry"), "Add value", icon = icon("plus"), class = "btn-sm"),
               uiOutput(ns("mass_preview")),
               
-              checkboxInput(ns("precursor"), "Just after precursor", value = card$just_after_precursor),
+              # --- UI for "Neutral loss" (unchecked) ---
+              conditionalPanel(
+                condition = "!input.peakToggle",
+                ns = ns,
+                div(
+                  checkboxInput(ns("sequential"), "Sequential neutral losses", value = card$sequential),
+                  uiOutput(ns("sequential_slider_ui")),
+                  checkboxInput(ns("precursor"), "Just after precursor", value = card$just_after_precursor)
+                )
+              ),
+ 
               checkboxInput(ns("sumOfSmall"), "Validation by sum of smaller peaks", value = card$sumOfSmall),
               div(style = "text-align: center;", createPriorityRadioButtons(ns("priority"), "basic"))
               
@@ -70,6 +70,7 @@ mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_ch
     rule_state <- reactiveValues(
       id = initial$id, 
       label = initial$label, 
+      is_mzPeak = initial$is_mzPeak,
       input_type = initial$input_type,
       min_repeat = initial$min_repeat, 
       max_repeat = initial$max_repeat,
@@ -79,38 +80,24 @@ mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_ch
       next_card_id = initial$next_card_id
     )
     
+    
+    #--------------------------------------------------------------------------
+    # Entry modules
+    #--------------------------------------------------------------------------
+    
     entry_modules <- reactiveValues()
     entry_ids <- reactiveVal(character(0))
     next_entry_id <- reactiveVal(initial$next_entry_id)
     
-    # Entry UI rendern
-    output$mass_entry_ui <- renderUI({
-      cds <- current_entries()
+    output$entries_ui <- renderUI({
+      ids <- entry_ids()
+      if (length(ids) == 0) return(NULL)
       
-      if (length(cds) == 0) return(NULL)
-      
-      lapply(cds, function(card) {
-        message(str(card))
-        entryModuleUI(paste0("entry_", card$id), card, rule_state$input_type ,metabolite_choices)
-
+      lapply(ids, function(eid) {
+        init <- isolate(entry_modules[[eid]]())
+        entryModuleUI(ns(paste0("entry_", eid)), init, rule_state$input_type, metabolite_choices)
       })
     })
-    
-    observeEvent(input$sequential, {
-      shinyjs::toggle(id = "slider", condition = input$sequential)
-    }, ignoreNULL = FALSE)
-    
-    add_entry <- function(entry_init) {
-      message("add_entry called with: ", entry_init$id, " / ", entry_init$value)
-      eid <- as.character(entry_init$id)
-      # insertUI(
-      #   selector = paste0("#", ns("entries_container")), where = "beforeEnd",
-      #   ui = div(id = ns(paste0("entry_wrap_", eid)),
-      #            entryModuleUI(ns(paste0("entry_", eid)), entry_init, rule_state$input_type, metabolite_choices))
-      # )
-      entry_modules[[eid]] <- entryModuleServer(paste0("entry_", eid), entry_init, remove_entry)
-      entry_ids(c(entry_ids(), eid))
-    }
     
     remove_entry <- function(eid) {
       eid <- as.character(eid)
@@ -118,6 +105,13 @@ mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_ch
       removeUI(selector = paste0("#", ns(paste0("entry_wrap_", eid))))
       entry_modules[[eid]] <- NULL
       entry_ids(setdiff(entry_ids(), eid))
+    }
+    
+    add_entry <- function(entry_init) {
+      message("add_entry called with: ", entry_init$id, " / ", entry_init$value)
+      eid <- as.character(entry_init$id)
+      entry_modules[[eid]] <- entryModuleServer(paste0("entry_", eid), entry_init, remove_entry)
+      entry_ids(c(entry_ids(), eid))
     }
     
     observeEvent(input$input_type, {
@@ -135,6 +129,37 @@ mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_ch
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
     
     isolate({ for (e in initial$entries) add_entry(e) })
+    
+        current_entries <- reactive({
+      lapply(entry_ids(), function(eid) entry_modules[[eid]]())
+    })
+    
+    #--------------------------------------------------------------------------
+    # Toggle
+    #--------------------------------------------------------------------------
+    
+    output$sequential_slider_ui <- renderUI({
+      req(input$sequential)
+      noUiSliderInput(
+        inputId = ns("slider"),
+        label = "Number of losses",
+        min = 0,
+        max = 10,
+        value = c(rule_state$min_repeat, rule_state$max_repeat),
+        step = 1,
+        format = wNumbFormat(decimals = 0),
+        tooltips = TRUE,
+        pips = list(mode = "values", values = list(0, 10), density = 10),
+        color = "#337ab7"
+      )
+    })
+    
+    observeEvent(input$peakToggle, {
+      rule_state$is_mzPeak <- isTRUE(input$peakToggle)
+    }, ignoreNULL = FALSE, ignoreInit = TRUE)
+  
+
+    
     
     observeEvent(input$label, rule_state$label <- input$label, ignoreInit = TRUE)
     observeEvent(input$priority, rule_state$priority <- input$priority, ignoreInit = TRUE)
@@ -157,17 +182,14 @@ mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_ch
     observeEvent(input$duplicate, on_duplicate(rule_state$id))
     observeEvent(input$delete, on_delete(rule_state$id))
     
-    current_entries <- reactive({
-      lapply(entry_ids(), function(eid) entry_modules[[eid]]())
-    })
     
     output$mass_preview <- renderUI({
       masses <- vapply(current_entries(), function(e) {
         resolve_mass(list(input_type = rule_state$input_type, value = e$value))
       }, numeric(1))
-      masses <- masses[!is.na(masses)]
+      masses <- abs(as.numeric(masses[!is.na(masses)]))
       if (length(masses) == 0) return(NULL)
-      
+      if(!rule_state$is_mzPeak)masses <- - masses
       tagList(
         div(
           class = "mass-preview",
@@ -196,6 +218,7 @@ mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_ch
     reactive({
       list(id = rule_state$id, 
            label = rule_state$label, 
+           is_mzPeak = rule_state$is_mzPeak,
            input_type = rule_state$input_type,
            entries = current_entries(), 
            next_entry_id = next_entry_id(),
@@ -235,7 +258,7 @@ entryModuleServer <- function(id, initial, on_remove) {
       value = initial$value)
     
     observeEvent(input$value, {
-      message(paste("value",input$value))
+      message(paste("observeEvent(input$value",input$value))
       state$value <- input$value
     }, ignoreInit = TRUE)
     
@@ -276,6 +299,7 @@ empty_card <- function(id) {
   list(
     id = id,
     label = paste("Peak filter", id),
+    is_mzPeak = FALSE,
     input_type = "mass",
     entries = list(empty_entry(1)),
     next_entry_id = 2,
@@ -286,7 +310,7 @@ empty_card <- function(id) {
     sequential = FALSE,
     priority = 1,
     next_card_id = NA
-  )
+    )
 }
 
 

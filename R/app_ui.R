@@ -13,7 +13,7 @@ app_ui <- function(request) {
 		golem_add_external_resources(),
 		shinyjs::useShinyjs(),
 		fluidPage(
-		  tags$link(rel = "stylesheet", type = "text/css", href = "www/custom.css"),
+		  tags$link(rel = "stylesheet", type = "text/css", href = "custom.css"),
 		    
 		    # --- Welcome Screen ---
 		    shinyjs::hidden(
