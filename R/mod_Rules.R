@@ -63,7 +63,7 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
 #' Rules Server Functions
 #'
 #' @noRd 
-mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_choices, parent_session ) {
+mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, metabolite_choices, parent_session ) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -185,7 +185,7 @@ mod_Rules_server <- function(id, initial, on_delete, on_duplicate, metabolite_ch
     
     output$mass_preview <- renderUI({
       masses <- vapply(current_entries(), function(e) {
-        resolve_mass(list(input_type = rule_state$input_type, value = e$value))
+        resolve_mass(list(input_type = rule_state$input_type, value = e$value, is_mzPeak = rule_state$is_mzPeak, polarity = polarity))
       }, numeric(1))
       masses <- abs(as.numeric(masses[!is.na(masses)]))
       if (length(masses) == 0) return(NULL)
@@ -267,31 +267,48 @@ entryModuleServer <- function(id, initial, on_remove) {
   })
 }
 
+#adducts have to be added (at the moment only H+ and H-)
 #' @description Calculates the mass of metabolite names
 #' @noRd
-resolve_mass <- function(card) {
-  if (card$input_type == "mass") {
-    m <- suppressWarnings(as.numeric(card$value))
+resolve_mass <- function(card_info, polarity) {
+  if (card_info$input_type == "mass") {
+    m <- suppressWarnings(as.numeric(card_info$value))
     if (!is.na(m)) return(round(m, 4))
     return(NA)
   }
-  idx <- which(METABOLITES$name == card$value)
-  if (length(idx) == 1) return(METABOLITES$mass[idx])
+  idx <- which(METABOLITES$name == card_info$value)
+  if(card_info$is_mzPeak){
+    if (length(idx) == 1){
+      monoMass <- METABOLITES$monoMass[idx]
+      ifelse(card_info$polarity == "pos",monoMass <- monoMass + 1.008, monoMass <- monoMass - 1.008 )
+      return(monoMass)
+    }
+  }
+  else{
+    if (length(idx) == 1) return(METABOLITES$NeutralLoss[idx])
+  }
+  
   NA
 }
 
 
 METABOLITES <- data.frame(
   name = c(
-    "Glucose Loss", "Fructose", "Sucrose", "Lactate", "Pyruvate",
-    "Citrate", "Malate", "ATP", "ADP", "AMP"
+    "Glucose", "Fructose", "Sucrose", "Lactate", "Pyruvate",
+    "Citrate", "Malate", "Water", "Phosphate"
   ),
-  mass = c(
-    -180.0634, 180.0634, 342.1162, 89.0244, 87.0082,
-    192.0270, 133.0137, 506.9957, 427.0294, 347.0631
+  NeutralLoss = c(
+    162.0528, 162.0528, 162.0528, 72.0211, 43.9898,
+    174.0164, 116.0110, 18.0106, 97.9769
+  ),
+  # monoisotopic mass (Da)
+  monoMass = c(
+    180.0634, 180.0634, 342.1162, 90.0317, 88.0160,
+    192.0270, 134.0215, 18.0106, 97.9769
   ),
   stringsAsFactors = FALSE
 )
+
 
 empty_entry <- function(id) list(id = id, value = "")
 

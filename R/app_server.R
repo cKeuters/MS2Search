@@ -94,6 +94,12 @@ app_server <- function(input, output, session) {
     DreaMS_priority = "basic"
   )
   
+  analysis_results <- reactiveValues(
+    spectra = NULL,
+    results = NULL,
+    running = FALSE
+  )
+  
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
   #-----------------------------------------------------------------------------
@@ -201,14 +207,15 @@ app_server <- function(input, output, session) {
   # Button Return to Setup
   observeEvent(input$back_to_welcome, {
     add_log("----------- Return to Setup -------------")
+    log_text <- ""
     state$screen <- "welcome"
   })
   
   #Button run analysis
   observeEvent(input$run_analysis, {
-    
-    state$screen <- "results"
-  })
+     
+     state$screen <- "results"
+   })
   
   
   #-----------------------------------------------------------------------------
@@ -289,22 +296,11 @@ app_server <- function(input, output, session) {
     next_card_id(id + 1)
   })
   
-  # add_card_to_ui <- function(card_init) {
-  #   cid <- as.character(card_init$id)
-  #   card_modules[[cid]] <- mod_Rules_server(
-  #     paste0("card_", cid), card_init,
-  #     on_delete = delete_card_by_id,
-  #     on_duplicate = duplicate_card_by_id,
-  #     metabolite_choices = METABOLITES$name,
-  #     parent_session = session    
-  #   )
-  #   card_ids(c(card_ids(), cid))
-  # }
   
   add_card_to_ui <- function(card_init) {
     cid <- as.character(card_init$id)
     card_modules[[cid]] <- mod_Rules_server(
-      paste0("card_", cid), card_init,
+      paste0("card_", cid), card_init, state$mode,
       on_delete = delete_card_by_id,
       on_duplicate = duplicate_card_by_id,
       metabolite_choices = METABOLITES$name,
@@ -355,6 +351,10 @@ app_server <- function(input, output, session) {
   #-----------------------------------------------------------------------------
   
   output$log <- renderText(log_text())
+
+  spectra <- eventReactive(input$run_analysis, {
+    load_spectra(input$ms2_file$datapath)
+  })
   
   results <- eventReactive(input$run_analysis, {
     settings <- create_settings_list(
@@ -362,14 +362,23 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
       cards   = all_cards_data())
-    run_analysis(settings, input$ms2_file$datapath)
+    run_analysis(settings, spectra())
   })
   
-  output$result_text <- renderText({
-    results()
+  selected_feature_id <- reactive({
+    req(nrow(results()) > 0)
+    req(input$featureTable_rows_selected)
+    res <- results()
+    res$FEATURE_ID[input$featureTable_rows_selected]
   })
   
-  
+  output$spectrum_plot <- renderPlot({
+    req(nrow(results()) > 0)
+    req(selected_feature_id())
+    plot_spectrum_by_id(spectra(), selected_feature_id(), id_column = "FEATURE_ID")
+  })
+
+
   #-----------------------------------------------------------------------------
   # Screens hide/show
   #-----------------------------------------------------------------------------
@@ -578,14 +587,74 @@ app_server <- function(input, output, session) {
   output$results_ui <- renderUI({ 
     tagList(
       create_topbar_InProject(),
-      verbatimTextOutput("log"),
-      textOutput("result_text", inline = TRUE)
+      verbatimTextOutput("log")
     )
     })
   
+  output$featureTable <- DT::renderDataTable({
+    message("output$featureTable")
+    req(results())
+    res <- as.data.frame(results())
+    
+    DT::datatable(
+      res[, c("FEATURE_ID", "precursorMz", "rtime", "score")],
+      selection = "single",
+      class = "feature-table",
+      rownames = FALSE,
+      colnames = c("Feature ID", "m/z", "Retention time", "Score"),
+      options = list(
+        pageLength = 25,
+        lengthMenu = c(25, 50, 100),
+        order = list(list(3, "desc"))
+      )
+    ) |>
+      DT::formatRound(columns = "precursorMz", digits = 6) |>
+      DT::formatRound(columns = "rtime", digits = 4) |>
+      DT::formatRound(columns = "score", digits = 3)
+    
+  }, server = TRUE)
+  
+  
+  # feature details
+    output$spectrumDetails <- renderUI({
+      if (is.null(selected_feature_id())) {
+        return(div(class = "placeholder-text", "Select Feature"))
+      }
+      req(nrow(results()) > 0)
+      res <- results()
+      i <- as.numeric(selected_feature_id())
+      
+      tagList(
+        plotOutput("spectrum_plot"),
+        div(class = "detail-row",
+            div(class = "detail-label", "Feature ID"),
+            div(class = "detail-value", as.character(res$FEATURE_ID[i]))
+        ),
+        div(class = "detail-row",
+            div(class = "detail-label", "m/z"),
+            div(class = "detail-value", as.character(format(res$precursorMz[i], digits = 6)))
+        ),
+        div(class = "detail-row",
+            div(class = "detail-label", "Retention time"),
+            div(class = "detail-value", as.character(format(res$rtime[i], digits = 4)))
+        ),
+        div(class = "detail-row",
+            div(class = "detail-label", "Score"),
+            div(class = "detail-value", as.character(format(res$score[i], digits = 3)))
+        ),
+        div(class = "detail-row",
+            div(class = "detail-label", "Adduct"),
+            div(class = "detail-value", res$ION[i])
+        ),
+        div(class = "detail-row",
+            div(class = "detail-label", "Polarity"),
+            div(class = "detail-value", res$POLARITY[i])
+        )
+      )
+    })
 
-  
-  
+
+
   
 
   

@@ -1,3 +1,23 @@
+
+#' Loading MS2 data 
+#'
+#' @description Loading MS2 data
+#'
+#' @return returns a spectra object 
+#'
+#' @import Spectra
+#' @import MsBackendMgf
+#' @noRd
+load_spectra <- function(ms2_file){
+  print(ms2_file)
+  if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
+  #if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
+  
+  sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
+  add_log(paste("Loaded MS2-file with ", length(sp)," spectra."))
+  sp
+}
+
 #' Analysis coordination 
 #'
 #' @description A function to run the analysis
@@ -8,16 +28,12 @@
 #' @import MsBackendMgf
 #' @import SpectraQL
 #' @noRd
-run_analysis <- function(settings_list, ms2_file){
-  print(ms2_file)
-  if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
-  #if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
+run_analysis <- function(settings_list, sp){
+  #settings_list <- load_project_settings("path/data/Test_settings.zip")
+  
   #-----------------------------------------------------------------------------
   # Basic filters and checks
   #-----------------------------------------------------------------------------
- 
-  sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
-  add_log(paste("Loaded MS2-file with ", length(sp)," spectra."))
 
   #check MS-Level 2 & empty spectra
   sp <- sp |>
@@ -51,94 +67,73 @@ run_analysis <- function(settings_list, ms2_file){
   #-----------------------------------------------------------------------------
   # Rule filters
   #-----------------------------------------------------------------------------
-  rule_queries <- c()
-  
+
   for(rule in settings_list$specific_filters){
-    print(rule)
     
-    if(rule$entries[[1]]$value < 0)rule$isNeutralLoss <- TRUE else rule$isNeutralLoss <- FALSE
+    masses <- vapply(rule$entries, function(e) {
+      resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
+    }, numeric(1))
+    masses <- abs(as.numeric(masses[!is.na(masses)]))
     
-    QUERY <- "QUERY scaninfo(MS2DATA) WHERE "
-    parts <- c()
-    
-    if(rule$isNeutralLoss){
+    if(!rule$is_mzPeak){
       
       #searching for multiple neutral losses
       if(rule$sequential & rule$max_repeat > 1){
-        QUERY <- NULL
-        
-        #SpectraQL does not support the X of massQL
-        # #precursor as starting peak
-        # if(rule$just_after_precursor) QUERY <- paste0(QUERY, "MS2PRED = X")
-        # else QUERY <- paste(QUERY, "MS2PROD = X")
-        # 
-        # #number of repeats
-        # for(i in 1:rule$max_repeat){
-        #   
-        #   if(i < rule$min_repeat) connector = "AND" else connector = "OR"
-        #   QUERY <- paste(QUERY, connector, "MS2NL = X +",abs(as.numeric(rule$entries[[1]]$value)), "*", i)
-        # }
-        
+
         ladders <- lapply(peaksData(sp), find_ladder,
-               values = unlist(rule$entries), losses_min = rule$min_repeat, losses_max = rule$max_repeat, tol_ppm = settings_list$basicFilters$tolerance_ppm, tol_mz = settings_list$basicFilters$minimum_dalton)
+               values = masses, losses_min = rule$min_repeat, losses_max = rule$max_repeat, tol_ppm = settings_list$basicFilters$tolerance_ppm, tol_mz = settings_list$basicFilters$minimum_dalton)
         
         
         has_ladder <- lengths(ladders) > 0
         
         sp <- sp[has_ladder]
-        add_log(paste0("Spectra after sequential rule: ", length(sp)))
+        add_log(paste0("Spectra after ",rule$label,": ", length(sp)))
         
 
       }else{
-        #searching for one neutral loss
-        for(entry in rule$entries){
-          ppm_da <- as.numeric(entry$value) * as.numeric(settings_list$basicFilters$tolerance_ppm) * 1e-6
-          
-          if(ppm_da < as.numeric(settings_list$basicFilters$minimum_dalton)){
-            parts <- c(parts,paste0("MS2NL=", entry$value,":TOLERANCEMZ=", settings_list$basicFilters$minimum_dalton))
-          } else {
-            parts <- c(parts,paste0("MS2NL=", entry$value,":TOLERANCEPPM=", settings_list$basicFilters$tolerance_ppm))
-          }
-        }
         
-        QUERY <- paste(QUERY, paste(parts, collapse = " OR "))
+        ladders <- lapply(peaksData(sp), find_ladder,
+                          values = masses, losses_min = 1, losses_max = 1, tol_ppm = settings_list$basicFilters$tolerance_ppm, tol_mz = settings_list$basicFilters$minimum_dalton)
         
+        has_ladder <- lengths(ladders) > 0
+        
+        sp <- sp[has_ladder]
+        add_log(paste0("Spectra after ",rule$label,": ", length(sp)))
       }
       
     }else{
       #Searching for specific mz values in the ms2 data
-      for(entry in rule$entries){
-        ppm_da <- as.numeric(entry$value) * settings_list$basicFilters$tolerance_ppm * 1e-6
+      
+      QUERY <- "QUERY scaninfo(MS2DATA) WHERE "
+      parts <- c()
+      for(mass in masses){
+        ppm_da <- as.numeric(mass) * settings_list$basicFilters$tolerance_ppm * 1e-6
         
         if(ppm_da < settings_list$basicFilters$minimum_dalton){
-          parts <- c(parts,paste0("MS2PROD=", entry$value,":TOLERANCEMZ=", settings_list$basicFilters$minimum_dalton))
+          parts <- c(parts,paste0("MS2PROD=", mass,":TOLERANCEMZ=", settings_list$basicFilters$minimum_dalton))
         } else {
-          parts <- c(parts,paste0("MS2PROD=", entry$value,":TOLERANCEPPM=", settings_list$basicFilters$tolerance_ppm))
+          parts <- c(parts,paste0("MS2PROD=", mass,":TOLERANCEPPM=", settings_list$basicFilters$tolerance_ppm))
         }
       }
       
       QUERY <- paste(QUERY, paste(parts, collapse = " OR "))
-      
-    }
-    if(!is.null(QUERY)){
       add_log(QUERY)
-      rule_queries <- c(rule_queries, QUERY)
+      sp <- query(sp, QUERY)
+      add_log(paste0("Spectra after ",rule$label,": ", lengths(sp$FEATURE_ID)))
     }
 
   }
   
+  #------------------------- creating dataframe from sp ----------------------
   
-  for(query in rule_queries){
-    print(query)
-    sp_query <- query(sp, query)
-    add_log(paste0("Spectra after rules: ", length(sp_query)))
-    
-  }
-  
-  
-  
+  results <- spectraData(sp)
+  results <- results[,c("FEATURE_ID","msLevel", "rtime", "precursorMz","POLARITY", "ION")]
+  results$score <- NA
+  results
 }
-  
+
+
+
 
 #' @noRd
 getRT <- function(sp){
@@ -179,14 +174,16 @@ getRT <- function(sp){
 #'
 #' @import MsCoreUtils
 #' @noRd
-find_ladder <- function(peaksData, values, losses_min, losses_max, tol_ppm, tol_mz) {
+find_ladder <- function(peaksData, values, losses_min, losses_max, tol_ppm, tol_mz, just_after_precursor = FALSE) {
   mz <- peaksData[, "mz"]
+  
   values <- as.numeric(values)
   n_peaks <- length(mz)
   if (n_peaks < losses_min) return(numeric(0))
   
   max_check <- losses_max + 1L
   live <- data.frame(anchor = seq_len(n_peaks), offset = 0)
+  if(just_after_precursor) live <- live[live$anchor == n_peaks,]
   run_length <- integer(n_peaks)
   
   for (lvl in seq_len(max_check)) {
@@ -210,7 +207,7 @@ find_ladder <- function(peaksData, values, losses_min, losses_max, tol_ppm, tol_
   }
   
   hit <- run_length >= losses_min & run_length <= losses_max
-  print(mz[hit])
+ 
   mz[hit]
 }
 
@@ -219,8 +216,6 @@ find_ladder <- function(peaksData, values, losses_min, losses_max, tol_ppm, tol_
 #-----------------------------------------------------------------------------
 # Logging
 #-----------------------------------------------------------------------------
-
-log_text <- reactiveVal("")
 
 #' @noRd
 add_log <- function(txt) {

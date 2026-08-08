@@ -1,3 +1,7 @@
+
+#text logging for results
+log_text <- reactiveVal("")
+
 #-------------------------------------------------------------------------------
 # Save and Load parameters
 #-------------------------------------------------------------------------------
@@ -103,3 +107,64 @@ load_user_project <- function(uploaded_zip_path) {
   
   return(list(ms1 = ms1, ms2 = ms2, settings = settings))
 }
+
+
+#' Plot a spectrum selected by feature ID
+#'
+#' @param spectra A `Spectra` object.
+#' @param feature_id Character or numeric. The ID to match against.
+#' @param id_column Character. spectraVariable holding the feature ID.
+#' @param ... Additional arguments passed to `Spectra::plotSpectra()`
+#'   (e.g. `main`, `xlim`, `ylim`).
+#'
+#' @return Invisibly returns the subset Spectra object (useful if you
+#'   want to reuse it, e.g. for peak annotation on top of the plot).
+#'
+#' @importFrom Spectra plotSpectra
+plot_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", ...) {
+  
+  spec_subset <- get_spectrum_by_id(spectra, feature_id, id_column)
+  
+  Spectra::plotSpectra(
+    spec_subset,
+    main = sprintf("%s: %s", id_column, feature_id),
+    ...
+  )
+  
+  invisible(spec_subset)
+}
+
+
+#' Get a single spectrum from a Spectra object by feature ID
+#'
+#' @param spectra A `Spectra` object containing multiple spectra.
+#' @param feature_id Character or numeric. The ID to match against.
+#' @param id_column Character. Name of the spectraVariable that holds
+#'   the feature ID (e.g. "spectrumId", "feature_id", "acquisitionNum").
+#'   Defaults to "spectrumId".
+#'
+#' @return A `Spectra` object subset to the matching spectrum/spectra.
+#'   Throws an informative error if no match is found.
+#'
+#' @importFrom Spectra spectraData
+get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
+  
+  sd <- Spectra::spectraData(spectra)
+  
+  if (!id_column %in% colnames(sd)) {
+    stop(sprintf(
+      "Column '%s' not found in spectraData. Available columns: %s",
+      id_column, paste(colnames(sd), collapse = ", ")
+    ))
+  }
+  
+  match_idx <- which(sd[[id_column]] == feature_id)
+  
+  if (length(match_idx) == 0) {
+    stop(sprintf("No spectrum found for %s = '%s'", id_column, feature_id))
+  }
+  
+  
+  spectra[match_idx]
+}
+

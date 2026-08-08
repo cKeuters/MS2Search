@@ -38,7 +38,23 @@ app_ui <- function(request) {
 		    ),
 		  # --- Results Screen ---
 		  shinyjs::hidden(
-		    div(id = "results_screen", uiOutput("results_ui"))
+		    div(id = "results_screen", 
+		        uiOutput("results_ui"),
+		        fluidRow(
+		          column(
+		            width = 6,
+		            DT::dataTableOutput("featureTable")
+		          ),
+		          column(
+		            width = 6,
+		            div(
+		              id = "detailPanel",
+		              class = "detail-panel",
+		              h4("Spektrum Details"),
+		              uiOutput("spectrumDetails")
+		            )
+		          )
+		        ))
 		  )
 		
 		)
