@@ -1,6 +1,5 @@
 
 #text logging for results
-log_text <- reactiveVal("")
 
 #-------------------------------------------------------------------------------
 # Save and Load parameters

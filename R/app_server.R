@@ -1,3 +1,4 @@
+#plan(multisession)
 #' The application server-side
 #'
 #' @param input,output,session Internal parameters for {shiny}.
@@ -6,6 +7,8 @@
 #' @import shinyWidgets
 #' @import jsonlite
 #' @import zip
+#' @import future
+#' @import promises
 #' @noRd
 app_server <- function(input, output, session) {
   
@@ -97,8 +100,11 @@ app_server <- function(input, output, session) {
   analysis_results <- reactiveValues(
     spectra = NULL,
     results = NULL,
-    running = FALSE
+    running = FALSE,
+    log = NULL
   )
+  log_state <- reactiveValues(file = NULL)
+  log_text <- reactiveVal("")
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -206,8 +212,6 @@ app_server <- function(input, output, session) {
   
   # Button Return to Setup
   observeEvent(input$back_to_welcome, {
-    add_log("----------- Return to Setup -------------")
-    log_text <- ""
     state$screen <- "welcome"
   })
   
@@ -351,32 +355,110 @@ app_server <- function(input, output, session) {
   #-----------------------------------------------------------------------------
   
   output$log <- renderText(log_text())
-
-  spectra <- eventReactive(input$run_analysis, {
-    load_spectra(input$ms2_file$datapath)
-  })
-  
-  results <- eventReactive(input$run_analysis, {
-    settings <- create_settings_list(
-      state = reactiveValuesToList(state),
-      basicFilterValues = reactiveValuesToList(basicFilterValues),
-      toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data())
-    run_analysis(settings, spectra())
-  })
-  
+  # 
+  # spectra <- eventReactive(input$run_analysis, {
+  #   load_spectra(input$ms2_file$datapath)
+  # })
+  # 
+  # results <- eventReactive(input$run_analysis, {
+  #   settings <- create_settings_list(
+  #     state = reactiveValuesToList(state),
+  #     basicFilterValues = reactiveValuesToList(basicFilterValues),
+  #     toolSettings = reactiveValuesToList(ToolSettings),
+  #     cards   = all_cards_data())
+  #   run_analysis(settings, spectra())
+  # })
+  # 
   selected_feature_id <- reactive({
-    req(nrow(results()) > 0)
+    req(nrow(analysis_results$results) > 0)
     req(input$featureTable_rows_selected)
-    res <- results()
+    res <- analysis_results$results
     res$FEATURE_ID[input$featureTable_rows_selected]
   })
   
   output$spectrum_plot <- renderPlot({
-    req(nrow(results()) > 0)
+    req(nrow(analysis_results$results) > 0)
     req(selected_feature_id())
-    plot_spectrum_by_id(spectra(), selected_feature_id(), id_column = "FEATURE_ID")
+    plot_spectrum_by_id(analysis_results$spectra, selected_feature_id(), id_column = "FEATURE_ID")
   })
+  
+  #run Analysis with logging
+  observeEvent(input$run_analysis, {
+    
+    state$screen <- "results"
+    analysis_results$running <- TRUE
+    
+    append_log <- function(msg) {
+      current <- log_text()
+      log_text(paste0(current, format(Sys.time(), "[%H:%M:%S] "), msg, "\n"))
+    }
+    
+    #append_log("Starting Analysis")
+    
+    ms2_path <- input$ms2_file$datapath
+    
+    settings <- create_settings_list(
+      state             = reactiveValuesToList(state),
+      basicFilterValues = reactiveValuesToList(basicFilterValues),
+      toolSettings      = reactiveValuesToList(ToolSettings),
+      cards             = all_cards_data()
+    )
+    
+    log_file <- tempfile(paste0("analysis_log_", state$project_name), fileext = ".txt")
+    writeLines("", log_file)
+    log_state$file <- log_file
+    
+    future({
+
+      # Log-Funktion
+      write_log <- function(msg) {
+        cat(format(Sys.time(), "[%H:%M:%S]"), msg, "\n",
+            file = log_file, append = TRUE)
+      }
+      
+      spec <- load_spectra(ms2_path, add_log = write_log)
+      
+      res <- run_analysis(settings, spec, add_log = write_log)
+      
+      list(
+        spectra = spec,
+        results = res,
+        log_file = log_file
+      )
+      
+    }) %...>% {
+      
+      logs <- paste(readLines(.$log_file, warn = FALSE), collapse = "\n")
+
+      analysis_results$spectra <- .$spectra
+      analysis_results$results <- .$results
+      analysis_results$running <- FALSE
+      analysis_results$log <- logs
+      
+      #append_log("Analysis finished")
+      
+    } 
+    # %...!% {
+    # 
+    #   # Error
+    #   append_log(paste("Error:", conditionMessage(.)))
+    #   analysis_results$running <- FALSE
+    # }
+  })
+  
+  
+  observe({
+    req(analysis_results$running)
+    req(log_state$file)
+    
+    invalidateLater(500, session)
+    
+    if (file.exists(log_state$file)) {
+      logs <- paste(readLines(log_state$file, warn = FALSE), collapse = "\n")
+      log_text(logs)
+    }
+  })
+  
 
 
   #-----------------------------------------------------------------------------
@@ -593,8 +675,8 @@ app_server <- function(input, output, session) {
   
   output$featureTable <- DT::renderDataTable({
     message("output$featureTable")
-    req(results())
-    res <- as.data.frame(results())
+    req(analysis_results$results)
+    res <- as.data.frame(analysis_results$results)
     
     DT::datatable(
       res[, c("FEATURE_ID", "precursorMz", "rtime", "score")],
@@ -620,8 +702,8 @@ app_server <- function(input, output, session) {
       if (is.null(selected_feature_id())) {
         return(div(class = "placeholder-text", "Select Feature"))
       }
-      req(nrow(results()) > 0)
-      res <- results()
+      req(nrow(analysis_results$results) > 0)
+      res <- analysis_results$results
       i <- as.numeric(selected_feature_id())
       
       tagList(
