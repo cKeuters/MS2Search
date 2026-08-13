@@ -31,7 +31,7 @@ app_server <- function(input, output, session) {
   # }
   # @keywords internal
   state <- reactiveValues(
-    screen = "welcome",
+    screen = "Setup",
     out_dir = path.expand("~"),
     mode = "pos",
     project_name = ""
@@ -75,16 +75,16 @@ app_server <- function(input, output, session) {
   # Tool configuration settings
   #
   # Stores user-configurable settings and activation states for
-  # external analysis tools used by the application.
+  # external Analysis tools used by the application.
   #
   # @details
   # The following settings are available:
   # \describe{
-  #   \item{LipidIN}{Logical flag indicating whether LipidIN analysis is enabled.}
+  #   \item{LipidIN}{Logical flag indicating whether LipidIN Analysis is enabled.}
   #   \item{LipidIN_ppm1}{Primary mass tolerance (ppm) used by LipidIN.}
   #   \item{LipidIN_ppm2}{Secondary mass tolerance (ppm) used by LipidIN.}
   #   \item{LipidIN_priority}{Execution priority assigned to LipidIN.}
-  #   \item{DreaMS}{Logical flag indicating whether DreaMS analysis is enabled.}
+  #   \item{DreaMS}{Logical flag indicating whether DreaMS Analysis is enabled.}
   #   \item{DreaMS_priority}{Execution priority assigned to DreaMS.}
   # }
   # @keywords internal
@@ -207,17 +207,21 @@ app_server <- function(input, output, session) {
   # Button Start Analysis
   observeEvent(input$start_analysis, {
     if(input$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
-    state$screen <- "analysis"
+    state$screen <- "Analysis"
   })
   
   # Button Return to Setup
   observeEvent(input$back_to_welcome, {
-    state$screen <- "welcome"
+    state$screen <- "Setup"
   })
-  
-  #Button run analysis
+  observeEvent(input$back_to_results, {
+    state$screen <- "results"
+  })
+  observeEvent(input$back_to_analysis, {
+    state$screen <- "Analysis"
+  })
+  #Button run Analysis
   observeEvent(input$run_analysis, {
-     
      state$screen <- "results"
    })
   
@@ -241,14 +245,19 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
       cards   = all_cards_data()),
+      analysis_results$results,
+      analysis_results$spectra,
       paste0(state$out_dir, "/", state$project_name,".zip")
     )
   })
   
   # Load Project
   observeEvent(input$load_project_file, {
-    req(input$load_project_file)
-    settings_list <- load_project_settings(input$load_project_file$datapath)
+    message("input$load_project_file")
+    loaded_project <- load_project(input$load_project_file$datapath)
+    settings_list <- loaded_project$settings_list
+    project_results <- loaded_project$results
+    project_spectra <- loaded_project$spectra
     
     pi <- settings_list$project_info
     state$project_name <- pi$project_name
@@ -278,6 +287,18 @@ app_server <- function(input, output, session) {
     basicFilterValues$n_peaks_priority <- bf$n_peaks_priority
     basicFilterValues$tolerance_ppm <- bf$tolerance_ppm
     basicFilterValues$minimum_dalton <- bf$minimum_dalton
+    
+    for(rule in settings_list$specific_filters){
+      add_card_to_ui(rule)
+    }
+    
+    if(!is.null(project_results) & !is.null(project_spectra)){
+      analysis_results$results <- project_results
+      analysis_results$spectra <- project_spectra
+      state$screen <- "results"
+    }
+    
+    
   })
   
   #-----------------------------------------------------------------------------
@@ -338,37 +359,17 @@ app_server <- function(input, output, session) {
     next_card_id(new_id + 1)
   }
   
-  # # UI rendern
-  # output$cards_ui <- renderUI({
-  #   ids <- card_ids()
-  #   if (length(ids) == 0) return(NULL)
-  #   
-  #   lapply(ids, function(cid) {
-  #     initial_card <- isolate(card_modules[[cid]]())
-  #     mod_Rules_ui(paste0("card_", initial_card$id), initial_card, METABOLITES$name)
-  #   })
-  # })
-  
   
   #-----------------------------------------------------------------------------
   # Results
   #-----------------------------------------------------------------------------
   
   output$log <- renderText(log_text())
-  # 
-  # spectra <- eventReactive(input$run_analysis, {
-  #   load_spectra(input$ms2_file$datapath)
-  # })
-  # 
-  # results <- eventReactive(input$run_analysis, {
-  #   settings <- create_settings_list(
-  #     state = reactiveValuesToList(state),
-  #     basicFilterValues = reactiveValuesToList(basicFilterValues),
-  #     toolSettings = reactiveValuesToList(ToolSettings),
-  #     cards   = all_cards_data())
-  #   run_analysis(settings, spectra())
-  # })
-  # 
+  
+  output$state_screen <- renderUI({
+    h2(class = "app-title", paste0("MS2Search - ", state$screen))
+  })
+  
   selected_feature_id <- reactive({
     req(nrow(analysis_results$results) > 0)
     req(input$featureTable_rows_selected)
@@ -412,6 +413,7 @@ app_server <- function(input, output, session) {
 
       # Log-Funktion
       write_log <- function(msg) {
+        message(msg)
         cat(format(Sys.time(), "[%H:%M:%S]"), msg, "\n",
             file = log_file, append = TRUE)
       }
@@ -459,6 +461,11 @@ app_server <- function(input, output, session) {
     }
   })
   
+  
+  output$has_results <- reactive({
+    nrow(analysis_results$results) > 0
+  })
+  outputOptions(output, "has_results", suspendWhenHidden = FALSE)
 
 
   #-----------------------------------------------------------------------------
@@ -474,9 +481,9 @@ app_server <- function(input, output, session) {
     
     message(paste("Screen:", state$screen))
     
-    if (state$screen == "welcome") {
+    if (state$screen == "Setup") {
       shinyjs::show("welcome_screen")
-    } else if (state$screen == "analysis") {
+    } else if (state$screen == "Analysis") {
       shinyjs::show("cards_section")
       shinyjs::show("analysis_footer")
       shinyjs::show("analysis_screen")
@@ -492,7 +499,6 @@ app_server <- function(input, output, session) {
   
   output$welcome_ui <- renderUI({ 
     tagList(
-      create_topbar_InSetup(),
       fluidRow(
         column(6,
                div(class = "card required-card",
@@ -550,10 +556,9 @@ app_server <- function(input, output, session) {
     
     
     })
-  output$analysis_header_ui <- renderUI({ 
+  output$analysis_ui <- renderUI({ 
     
     tagList(
-      create_topbar_InProject(),
       # Enable Bootstrap tooltips
       tags$script(HTML("
             $(function () {
@@ -668,18 +673,54 @@ app_server <- function(input, output, session) {
   
   output$results_ui <- renderUI({ 
     tagList(
-      create_topbar_InProject(),
       verbatimTextOutput("log")
     )
     })
   
+  output$score_table <- renderTable({
+    req(selected_feature_id())
+    i <- as.numeric(selected_feature_id())
+    res <- analysis_results$results
+    df <- res[res$FEATURE_ID == i, 2:ncol(res)]
+    
+    df[] <- lapply(df, function(col) {
+      if (is.logical(col)) {
+        ifelse(col,
+               "<span style='color:green;font-weight:bold;'>&#10004;</span>",
+               "<span style='color:red;font-weight:bold;'>&#10008;</span>")
+      } else {
+        col
+      }
+    })
+    colnames(df) <- gsub("[._]", " ", colnames(df))
+    t(df)
+  }, striped = TRUE, rownames = TRUE, colnames = FALSE, sanitize.text.function = function(x) x)
+  
+  # output$feature_info_table <- renderTable({
+  #   req(nrow(analysis_results$results) > 0)
+  #   req(selected_feature_id())
+  #   res <- analysis_results$results
+  #   featureID <- as.numeric(selected_feature_id())
+  #   i <- which(res$FEATURE_ID == featureID)
+  #   
+  #   data <- spectraData(sp)[sp$FEATURE_ID == featureID]
+  #   results <- results[,c("FEATURE_ID")]
+  #   
+  #   df <- res[res$FEATURE_ID == i, 2:ncol(res)]
+  # 
+  # 
+  # }, striped = TRUE)
+  
+  
   output$featureTable <- DT::renderDataTable({
-    message("output$featureTable")
     req(analysis_results$results)
-    res <- as.data.frame(analysis_results$results)
+    res <- analysis_results$results
+
+    spectrum_info <- as.data.frame(spectraData(analysis_results$spectra)[match(res$FEATURE_ID, spectraData(analysis_results$spectra)$FEATURE_ID), c("FEATURE_ID", "precursorMz", "rtime")])
+    spectrum_info$score <- res$score
     
     DT::datatable(
-      res[, c("FEATURE_ID", "precursorMz", "rtime", "score")],
+      spectrum_info,
       selection = "single",
       class = "feature-table",
       rownames = FALSE,
@@ -703,39 +744,38 @@ app_server <- function(input, output, session) {
         return(div(class = "placeholder-text", "Select Feature"))
       }
       req(nrow(analysis_results$results) > 0)
-      res <- analysis_results$results
-      i <- as.numeric(selected_feature_id())
-      
+      featureID <- as.numeric(selected_feature_id())
+
+      spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]
+
       tagList(
         plotOutput("spectrum_plot"),
         div(class = "detail-row",
             div(class = "detail-label", "Feature ID"),
-            div(class = "detail-value", as.character(res$FEATURE_ID[i]))
+            div(class = "detail-value", as.character(spectrum_info$FEATURE_ID))
         ),
+        tableOutput("score_table") ,
         div(class = "detail-row",
             div(class = "detail-label", "m/z"),
-            div(class = "detail-value", as.character(format(res$precursorMz[i], digits = 6)))
+            div(class = "detail-value", as.character(format(spectrum_info$precursorMz, digits = 6)))
         ),
         div(class = "detail-row",
             div(class = "detail-label", "Retention time"),
-            div(class = "detail-value", as.character(format(res$rtime[i], digits = 4)))
-        ),
-        div(class = "detail-row",
-            div(class = "detail-label", "Score"),
-            div(class = "detail-value", as.character(format(res$score[i], digits = 3)))
+            div(class = "detail-value", as.character(format(spectrum_info$rtime, digits = 4)))
         ),
         div(class = "detail-row",
             div(class = "detail-label", "Adduct"),
-            div(class = "detail-value", res$ION[i])
+            div(class = "detail-value", spectrum_info$ION)
         ),
         div(class = "detail-row",
             div(class = "detail-label", "Polarity"),
-            div(class = "detail-value", res$POLARITY[i])
+            div(class = "detail-value", spectrum_info$POLARITY)
         )
+        
       )
     })
 
-
+    
 
   
 

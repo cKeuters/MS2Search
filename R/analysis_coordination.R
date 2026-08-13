@@ -10,10 +10,13 @@
 #' @noRd
 load_spectra <- function(ms2_file, add_log){
   print(ms2_file)
-  #if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
-  if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
+  if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
+  #if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
   
   sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
+  sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
+  sp <- getRT(sp)
+  
   add_log(paste("Loaded MS2-file with ", length(sp)," spectra."))
   sp
 }
@@ -34,11 +37,8 @@ run_analysis <- function(settings_list, sp, add_log){
   #-----------------------------------------------------------------------------
   # Basic filters and checks
   #-----------------------------------------------------------------------------
-  sp <- getRT(sp)
-  results <- spectraData(sp)
-  results <- results[,c("FEATURE_ID","msLevel", "rtime", "precursorMz","POLARITY", "ION")]
-  results$FEATURE_ID <- as.numeric(results$FEATURE_ID)
-  
+  results <- data.frame(FEATURE_ID = spectraData(sp)$FEATURE_ID)
+
   #check MS-Level 2 & empty spectra
   sp <- sp |>
     filterMsLevel(2) |>
@@ -57,22 +57,33 @@ run_analysis <- function(settings_list, sp, add_log){
     retained_vector[is.na(retained_vector)] <- FALSE
     add_log(paste0("Spectra in mz-Range (", settings_list$basicFilters$mz_min,", ", settings_list$basicFilters$mz_max, "): ", sum(retained_vector)))
     results$mz_filter <- retained_vector
-
+    if(settings_list$basicFilters$mz_priority == "required"){
+      results <- results[retained_vector,]
+      sp <- sp[retained_vector,]
+    }
+    
   #check RT
     all_RT <- rtime(sp)
     retained_vector <- all_RT >= settings_list$basicFilters$rt_min & all_RT <= settings_list$basicFilters$rt_max
     retained_vector[is.na(retained_vector)] <- FALSE
     add_log(paste0("Spectra in RT-Range (", settings_list$basicFilters$rt_min,", ", settings_list$basicFilters$rt_max, "): ", sum(retained_vector)))
     results$rt_filter <- retained_vector
-  
+    if(settings_list$basicFilters$rt_priority == "required"){
+      results <- results[retained_vector,]
+      sp <- sp[retained_vector,]
+    }
+    
   #check peak count
     all_PeakCount <- lengths(sp)
     retained_vector <- all_PeakCount >= settings_list$basicFilters$n_peaks_min & all_PeakCount <= settings_list$basicFilters$n_peaks_max
     retained_vector[is.na(retained_vector)] <- FALSE
     add_log(paste0("Spectra in peak-count-range (", settings_list$basicFilters$n_peaks_min,", ", settings_list$basicFilters$n_peaks_max, "): ", sum(retained_vector)))
     results$peakCount_filter <- retained_vector
+    if(settings_list$basicFilters$n_peaks_priority == "required"){
+      results <- results[retained_vector,]
+      sp <- sp[retained_vector,]
+    }
 
-  
   #-----------------------------------------------------------------------------
   # Rule filters
   #-----------------------------------------------------------------------------
@@ -97,42 +108,35 @@ run_analysis <- function(settings_list, sp, add_log){
       retained_vector <- lengths(ladders) > 0
       add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
       results[rule$label] <- retained_vector
+      if(rule$priority == "required"){
+        results <- results[retained_vector,]
+        sp <- sp[retained_vector,]
+      }
       
     }else{
       #Searching for specific mz values in the ms2 data
       
-      QUERY <- "QUERY scaninfo(MS2DATA) WHERE "
-      parts <- c()
-      for(mass in masses){
-        ppm_da <- as.numeric(mass) * settings_list$basicFilters$tolerance_ppm * 1e-6
-        
-        if(ppm_da < settings_list$basicFilters$minimum_dalton){
-          parts <- c(parts,paste0("MS2PROD=", mass,":TOLERANCEMZ=", settings_list$basicFilters$minimum_dalton))
-        } else {
-          parts <- c(parts,paste0("MS2PROD=", mass,":TOLERANCEPPM=", settings_list$basicFilters$tolerance_ppm))
-        }
+      retained_vector <- unlist(lapply(peaksData(sp), findMZpeak,
+                values = masses, tol_ppm = settings_list$basicFilters$tolerance_ppm, tol_mz = settings_list$basicFilters$minimum_dalton))
+      add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
+      results[rule$label] <- retained_vector
+      if(rule$priority == "required"){
+        results <- results[retained_vector,]
+        sp <- sp[retained_vector,]
       }
-      
-      QUERY <- paste(QUERY, paste(parts, collapse = " OR "))
-      add_log(QUERY)
-      sp <- query(sp, QUERY)
-      add_log(paste0("Spectra after ",rule$label,": ", lengths(sp$FEATURE_ID)))
+
     }
 
   }
   
-  #------------------------- creating dataframe from sp ----------------------
-    
-    if(settings_list$basicFilters$mz_priority == "required") results[results$mz_filter,]
-    if(settings_list$basicFilters$rt_priority == "required") results[results$rt_filter,]
-    if(settings_list$basicFilters$n_peaks_priority == "required") results[results$peakCount_filter,]
+  #------------------------- creating dataframe  ----------------------
+
     results$score <- rowSums(
-      as.matrix(results[, 7:ncol(results)]),
+      as.matrix(results[, 2:ncol(results)]),
       na.rm = TRUE
-    ) / (ncol(results) - 6)
+    ) / (ncol(results) - 1)
     
-    print(head(results))
-    results
+    as.data.frame(results)
 }
 
 
@@ -214,18 +218,11 @@ find_ladder <- function(peaksData, values, losses_min, losses_max, tol_ppm, tol_
   mz[hit]
 }
 
-
-
-#-----------------------------------------------------------------------------
-# Logging
-#-----------------------------------------------------------------------------
-
-#' @noRd
-# add_log <- function(txt) {
-#   txt <- paste(txt , "\n")
-#   cat(txt)
-#   log_text(paste(log_text(), txt))
-# }
-
+findMZpeak <- function(peaksData, values, tol_ppm, tol_mz){
+  mz <- peaksData[, "mz"]
+  values <- as.numeric(values)
+  idx <- closest(values, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
+  !is.na(any(idx))
+}
 
 

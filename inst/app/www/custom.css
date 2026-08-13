@@ -1,28 +1,45 @@
  
 .top-bar {
+    position: relative;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    background: #ffffff;
-    padding: 15px 25px;
+    justify-content: space-between;
+    background: #fff;
+    padding: 20px 30px;
     border-bottom: 1px solid #e0e0e0;
     margin-bottom: 25px;
     border-radius: 0 0 8px 8px;
-    width: 100vw;
-  }
-.app-title { margin: 0; font-weight: 300; color: #2c3e50; }
-
-
-#load_project_wrapper .input-group > input[type="text"] {
-  display: none;
-}
-#load_project_wrapper .progress {
-  display: none;
-}
-#load_project_wrapper .input-group {
-  width: auto;
 }
 
+.top-bar-nav {
+    display: flex;
+    gap: 10px;
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+}
+
+.app-title { margin: 0; font-weight: 300; color: #2c3e50; white-space: nowrap; }
+
+#load_project_wrapper .input-group > input[type='text'] {
+      opacity: 0;
+      width: 0;
+      padding: 0;
+      border: none;
+      pointer-events: none;
+    }
+    #load_project_wrapper .progress,
+    #load_project_wrapper .shiny-file-input-progress {
+      opacity: 0;
+      height: 0;
+      margin: 0;
+      overflow: hidden;
+    }
+    #load_project_wrapper .input-group {
+      width: auto;
+    }
+    
 .card {
   background: #ffffff;
   border-radius: 8px;
@@ -173,6 +190,12 @@
   min-width: 0;
 }
 
+.card-label {
+  font-size: 12px;
+  font-weight: 400 !important;
+  
+}
+
 .card-actions {
   display: flex;
   flex-wrap: nowrap;
@@ -205,13 +228,6 @@
   min-height: 32px;
   font-size: 13px;
   padding: 6px 10px;
-}
-
-.arrow-connector {
-  text-align: center;
-  color: #7f8c8d;
-  font-size: 20px;
-  margin: -8px 0 8px 0;
 }
 
 .peak-badge {

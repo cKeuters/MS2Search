@@ -17,12 +17,22 @@ app_ui <- function(request) {
 		    
 		    # --- Welcome Screen ---
 		    shinyjs::hidden(
-		      div(id = "welcome_screen", uiOutput("welcome_ui"))
+		      div(id = "welcome_screen", 
+		          div(class = "top-bar",
+		              h2(class = "app-title", "MS2Search - Setup"),
+		              div(id = "load_project_wrapper",
+		                  fileInput("load_project_file", label = NULL, accept = ".zip",
+		                            buttonLabel = tagList(icon("folder-open"), "Load Project"),
+		                            placeholder = "")
+		              )
+		          ),
+		          uiOutput("welcome_ui"))
 		    ),
 		    
 		    # --- Analysis Screen ---
 		  shinyjs::hidden(div(id = "analysis_screen",
-		        uiOutput("analysis_header_ui"), 
+		        create_topbar_InProject(),
+		        uiOutput("analysis_ui"), 
 		        shinyjs::hidden(
 		          div(id = "cards_section",
 		              uiOutput("rule_coordination"),
@@ -39,6 +49,7 @@ app_ui <- function(request) {
 		  # --- Results Screen ---
 		  shinyjs::hidden(
 		    div(id = "results_screen", 
+		        create_topbar_InProject(),
 		        uiOutput("results_ui"),
 		        fluidRow(
 		          column(

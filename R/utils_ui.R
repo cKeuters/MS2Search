@@ -8,13 +8,20 @@
 #' @noRd
 create_topbar_InProject <- function(){
   div(class = "top-bar",
-      h2(class = "app-title", "Cera Search Project - Analysis"),
-      div(
-        actionButton("save_project", "Save Project",
-                     icon = icon("folder-open"), class = "btn-default"),
-        actionButton("back_to_welcome", "Return to Setup",
-                     icon = icon("house"), class = "btn-default")
-      )
+      h2(class = "app-title","MS2Search - Analysis"),
+      #uiOutput("state_screen"),
+      div(class= "top-bar-nav",
+        actionButton("back_to_welcome", "Setup",
+                     icon = icon("house"), class = "btn-default"),
+        actionButton("back_to_analysis", "Analysis",
+                     icon = icon("sliders"), class = "btn-default"),
+        conditionalPanel(
+          condition = "output.has_results",
+          actionButton("back_to_results", "Results",
+                     icon = icon("square-poll-horizontal"), class = "btn-default"))
+      ),
+      actionButton("save_project", "Save Project",
+                   icon = icon("folder-open"), class = "btn-default")
   )
 }
 

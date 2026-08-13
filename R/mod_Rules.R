@@ -36,7 +36,7 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
               selectInput(ns("input_type"), "Input type",
                           choices = c("Exact mass" = "mass", "Metabolite name" = "metabolite"),
                           selected = card$input_type),
-              uiOutput(ns("entries_ui")),
+              div(id = ns("entries_ui")),
               
               actionButton(ns("add_entry"), "Add value", icon = icon("plus"), class = "btn-sm"),
               uiOutput(ns("mass_preview")),
@@ -48,11 +48,14 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
                 div(
                   checkboxInput(ns("sequential"), "Sequential neutral losses", value = card$sequential),
                   uiOutput(ns("sequential_slider_ui")),
-                  checkboxInput(ns("precursor"), "Just after precursor", value = card$just_after_precursor)
+                  checkboxInput(ns("precursor"), "Just after precursor", value = card$just_after_precursor),
+                  div(class = "flex-distance card-label",
+                      numericInput("rule_mz_min", "Minimum m/z value", value = card$rule_mz_min),
+                      numericInput("rule_mz_max", "Maximum m/z value", value = card$rule_mz_max))
                 )
               ),
  
-              checkboxInput(ns("sumOfSmall"), "Validation by sum of smaller peaks", value = card$sumOfSmall),
+              checkboxInput(ns("filter_noise"), "Remove noise from MS2 spectrum before search", value = card$filter_noise),
               div(style = "text-align: center;", createPriorityRadioButtons(ns("priority"), "basic"))
               
           )
@@ -75,9 +78,12 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
       min_repeat = initial$min_repeat, 
       max_repeat = initial$max_repeat,
       just_after_precursor = initial$just_after_precursor, 
-      sumOfSmall = initial$sumOfSmall, 
+      filter_noise = initial$filter_noise, 
       sequential = initial$sequential,
-      next_card_id = initial$next_card_id
+      next_card_id = initial$next_card_id,
+      priority = initial$priority,
+      rule_mz_min = initial$rule_mz_min,
+      rule_mz_max = initial$rule_mz_max
     )
     
     
@@ -89,15 +95,7 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
     entry_ids <- reactiveVal(character(0))
     next_entry_id <- reactiveVal(initial$next_entry_id)
     
-    output$entries_ui <- renderUI({
-      ids <- entry_ids()
-      if (length(ids) == 0) return(NULL)
-      
-      lapply(ids, function(eid) {
-        init <- isolate(entry_modules[[eid]]())
-        entryModuleUI(ns(paste0("entry_", eid)), init, rule_state$input_type, metabolite_choices)
-      })
-    })
+    
     
     remove_entry <- function(eid) {
       eid <- as.character(eid)
@@ -107,12 +105,30 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
       entry_ids(setdiff(entry_ids(), eid))
     }
     
-    add_entry <- function(entry_init) {
-      message("add_entry called with: ", entry_init$id, " / ", entry_init$value)
+    add_entry <- function(entry_init, defer_ui = FALSE) {
       eid <- as.character(entry_init$id)
       entry_modules[[eid]] <- entryModuleServer(paste0("entry_", eid), entry_init, remove_entry)
       entry_ids(c(entry_ids(), eid))
+      
+      insert_entry_ui <- function() {
+        insertUI(
+          selector = paste0("#", ns("entries_ui")),
+          where = "beforeEnd",
+          ui = div(
+            id = ns(paste0("entry_wrap_", eid)),
+            entryModuleUI(ns(paste0("entry_", eid)), entry_init, isolate(rule_state$input_type), metabolite_choices)
+          )
+        )
+      }
+      
+      if (defer_ui) {
+        session$onFlushed(insert_entry_ui, once = TRUE)
+      } else {
+        insert_entry_ui()
+      }
     }
+    
+    isolate({ for (e in initial$entries) add_entry(e, defer_ui = TRUE) })
     
     observeEvent(input$input_type, {
       if (identical(input$input_type, isolate(rule_state$input_type))) return()
@@ -128,9 +144,11 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
       for (eid in old_ids) add_entry(list(id = as.numeric(eid), value = ""))
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
     
-    isolate({ for (e in initial$entries) add_entry(e) })
+    # session$onFlushed(function() {
+    #   isolate({ for (e in initial$entries) add_entry(e) })
+    # }, once = TRUE)
     
-        current_entries <- reactive({
+    current_entries <- reactive({
       lapply(entry_ids(), function(eid) entry_modules[[eid]]())
     })
     
@@ -164,8 +182,10 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
     observeEvent(input$label, rule_state$label <- input$label, ignoreInit = TRUE)
     observeEvent(input$priority, rule_state$priority <- input$priority, ignoreInit = TRUE)
     observeEvent(input$precursor, rule_state$just_after_precursor <- isTRUE(input$precursor), ignoreInit = TRUE)
-    observeEvent(input$sumOfSmall, rule_state$sumOfSmall <- isTRUE(input$sumOfSmall), ignoreInit = TRUE)
+    observeEvent(input$filter_noise, rule_state$filter_noise <- isTRUE(input$filter_noise), ignoreInit = TRUE)
     observeEvent(input$sequential, rule_state$sequential <- isTRUE(input$sequential), ignoreInit = TRUE)
+    observeEvent(input$rule_mz_min, rule_state$rule_mz_min <- input$rule_mz_min)
+    observeEvent(input$rule_mz_max, rule_state$rule_mz_max <- input$rule_mz_max)
     
     observeEvent(input$slider, {
       req(input$slider)
@@ -225,9 +245,12 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
            min_repeat = rule_state$min_repeat, 
            max_repeat = rule_state$max_repeat,
            just_after_precursor = rule_state$just_after_precursor, 
-           sumOfSmall = rule_state$sumOfSmall, 
+           filter_noise = rule_state$filter_noise, 
            sequential = rule_state$sequential, 
-           next_card_id = rule_state$next_card_id)
+           next_card_id = rule_state$next_card_id,
+           priority = rule_state$priority,
+           rule_mz_min = rule_state$rule_mz_min,
+           rule_mz_max = rule_state$rule_mz_max)
     })
   }, session = parent_session)
 }
@@ -258,7 +281,6 @@ entryModuleServer <- function(id, initial, on_remove) {
       value = initial$value)
     
     observeEvent(input$value, {
-      message(paste("observeEvent(input$value",input$value))
       state$value <- input$value
     }, ignoreInit = TRUE)
     
@@ -323,10 +345,11 @@ empty_card <- function(id) {
     min_repeat = 0,
     max_repeat = 1,
     just_after_precursor = FALSE,
-    sumOfSmall = FALSE,
     sequential = FALSE,
-    priority = 1,
-    next_card_id = NA
+    priority = "basic",
+    rule_mz_min = NULL,
+    rule_mz_max = NULL,
+    filter_noise = TRUE
     )
 }
 
