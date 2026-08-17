@@ -50,8 +50,8 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
                   uiOutput(ns("sequential_slider_ui")),
                   checkboxInput(ns("precursor"), "Just after precursor", value = card$just_after_precursor),
                   div(class = "flex-distance card-label",
-                      numericInput("rule_mz_min", "Minimum m/z value", value = card$rule_mz_min),
-                      numericInput("rule_mz_max", "Maximum m/z value", value = card$rule_mz_max))
+                      numericInput(ns("rule_mz_min"), "Minimum m/z value", value = card$rule_mz_min),
+                      numericInput(ns("rule_mz_max"), "Maximum m/z value", value = card$rule_mz_max))
                 )
               ),
  

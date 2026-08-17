@@ -215,14 +215,14 @@ app_server <- function(input, output, session) {
     state$screen <- "Setup"
   })
   observeEvent(input$back_to_results, {
-    state$screen <- "results"
+    state$screen <- "Results"
   })
   observeEvent(input$back_to_analysis, {
     state$screen <- "Analysis"
   })
   #Button run Analysis
   observeEvent(input$run_analysis, {
-     state$screen <- "results"
+     state$screen <- "Results"
    })
   
   
@@ -253,7 +253,6 @@ app_server <- function(input, output, session) {
   
   # Load Project
   observeEvent(input$load_project_file, {
-    message("input$load_project_file")
     loaded_project <- load_project(input$load_project_file$datapath)
     settings_list <- loaded_project$settings_list
     project_results <- loaded_project$results
@@ -295,7 +294,7 @@ app_server <- function(input, output, session) {
     if(!is.null(project_results) & !is.null(project_spectra)){
       analysis_results$results <- project_results
       analysis_results$spectra <- project_spectra
-      state$screen <- "results"
+      state$screen <- "Results"
     }
     
     
@@ -380,13 +379,16 @@ app_server <- function(input, output, session) {
   output$spectrum_plot <- renderPlot({
     req(nrow(analysis_results$results) > 0)
     req(selected_feature_id())
-    plot_spectrum_by_id(analysis_results$spectra, selected_feature_id(), id_column = "FEATURE_ID")
+    par(mfrow = c(2, 1))
+    plot_spectrum_by_id(analysis_results$spectra, noise = FALSE, selected_feature_id(), id_column = "FEATURE_ID")
+    plot_spectrum_by_id(analysis_results$spectra, noise = TRUE, selected_feature_id(), id_column = "FEATURE_ID")
+    
   })
   
   #run Analysis with logging
   observeEvent(input$run_analysis, {
     
-    state$screen <- "results"
+    state$screen <- "Results"
     analysis_results$running <- TRUE
     
     append_log <- function(msg) {
@@ -410,42 +412,57 @@ app_server <- function(input, output, session) {
     log_state$file <- log_file
     
     future({
-
-      # Log-Funktion
+      
       write_log <- function(msg) {
         message(msg)
-        cat(format(Sys.time(), "[%H:%M:%S]"), msg, "\n",
-            file = log_file, append = TRUE)
+        cat(
+          format(Sys.time(), "[%H:%M:%S]"), msg, "\n",
+          file = log_file, append = TRUE
+        )
       }
       
-      spec <- load_spectra(ms2_path, add_log = write_log)
       
-      res <- run_analysis(settings, spec, add_log = write_log)
-      
-      list(
-        spectra = spec,
-        results = res,
-        log_file = log_file
-      )
+      tryCatch({
+        
+        spec <- load_spectra(ms2_path, add_log = write_log)
+        
+        res <- run_analysis(settings, spec, add_log = write_log)
+        
+        list(
+          spectra = spec,
+          results = res,
+          log_file = log_file
+        )
+        
+      }, error = function(e) {
+        write_log("ERROR:")
+        write_log(conditionMessage(e))
+        
+        stop(e)
+      })
       
     }) %...>% {
-      
+      # success handler
       logs <- paste(readLines(.$log_file, warn = FALSE), collapse = "\n")
-
+      
       analysis_results$spectra <- .$spectra
       analysis_results$results <- .$results
       analysis_results$running <- FALSE
       analysis_results$log <- logs
       
-      #append_log("Analysis finished")
+    } %...!% {
+      # error handler
+      analysis_results$running <- FALSE
       
-    } 
-    # %...!% {
-    # 
-    #   # Error
-    #   append_log(paste("Error:", conditionMessage(.)))
-    #   analysis_results$running <- FALSE
-    # }
+      message("Future failed:")
+      message(.)
+      
+      if (file.exists(log_file)) {
+        analysis_results$log <-
+          paste(readLines(log_file, warn = FALSE), collapse = "\n")
+      }
+    }
+    
   })
   
   
@@ -487,7 +504,7 @@ app_server <- function(input, output, session) {
       shinyjs::show("cards_section")
       shinyjs::show("analysis_footer")
       shinyjs::show("analysis_screen")
-    } else if (state$screen == "results") {
+    } else if (state$screen == "Results") {
       shinyjs::show("results_screen")
     }
   }, ignoreNULL = FALSE)

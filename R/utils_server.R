@@ -119,9 +119,9 @@ load_project <- function(zip_path) {
 #'   want to reuse it, e.g. for peak annotation on top of the plot).
 #'
 #' @importFrom Spectra plotSpectra
-plot_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", ...) {
+plot_spectrum_by_id <- function(spectra, noise, feature_id, id_column = "FeatureID", ...) {
   
-  spec_subset <- get_spectrum_by_id(spectra, feature_id, id_column)
+  spec_subset <- get_spectrum_by_id(spectra, feature_id, id_column, noise)
   
   Spectra::plotSpectra(
     spec_subset,
@@ -145,24 +145,33 @@ plot_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", ..
 #'   Throws an informative error if no match is found.
 #'
 #' @importFrom Spectra spectraData
-get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
+get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", noise) {
   
-  sd <- Spectra::spectraData(spectra)
+  spectraData <- Spectra::spectraData(spectra)
   
-  if (!id_column %in% colnames(sd)) {
+  if (!id_column %in% colnames(spectraData)) {
     stop(sprintf(
       "Column '%s' not found in spectraData. Available columns: %s",
-      id_column, paste(colnames(sd), collapse = ", ")
+      id_column, paste(colnames(spectraData), collapse = ", ")
     ))
   }
   
-  match_idx <- which(sd[[id_column]] == feature_id)
+  match_idx <- which(spectraData[[id_column]] == feature_id)
   
   if (length(match_idx) == 0) {
     stop(sprintf("No spectrum found for %s = '%s'", id_column, feature_id))
   }
   
+  subsp <- spectra[match_idx]
   
-  spectra[match_idx]
+  # if(noise){
+  #   peaks <- unlist(peaksData(subsp))
+  #   peak_noise_vector <- compute_Noise(peaks)
+  #   subsp <- addProcessing(subsp, compute_Noise)
+  # }
+  # print(unlist(peaksData(subsp)))
+  if(noise)subsp <- cleaning_ref(subsp)
+  subsp
+  
 }
 
