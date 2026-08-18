@@ -144,10 +144,6 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
       for (eid in old_ids) add_entry(list(id = as.numeric(eid), value = ""))
     }, ignoreInit = TRUE, ignoreNULL = TRUE)
     
-    # session$onFlushed(function() {
-    #   isolate({ for (e in initial$entries) add_entry(e) })
-    # }, once = TRUE)
-    
     current_entries <- reactive({
       lapply(entry_ids(), function(eid) entry_modules[[eid]]())
     })

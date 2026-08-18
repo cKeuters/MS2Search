@@ -724,3 +724,235 @@ table.dataTable tbody tr.selected {
   padding: 40px 0;
 }
       
+
+/*  Lipid Definition    *\
+
+/* Lipid Definition Panel
+   Diese Datei nach inst/app/www/ legen und in app_ui.R per
+   golem::add_resource_path() / tags$link(...) einbinden,
+   z.B. tags$link(rel = "stylesheet", href = "www/lipid_definition.css") */
+
+.lipid-def-panel {
+  background: #ffffff;
+  border: 1px solid #e2e2e2;
+  border-radius: 10px;
+  padding: 20px 24px;
+  max-width: 960px;
+}
+
+.lipid-def-panel h3 {
+  margin-top: 0;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.headgroup-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.headgroup-box .form-control {
+  text-align: center;
+  font-weight: 600;
+  font-family: "Courier New", monospace;
+  background: #f4f7fb;
+  border: 1.5px solid #4a7ba6;
+  border-radius: 8px;
+}
+
+.btn-add-chain {
+  background: #4a7ba6;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.btn-add-chain:hover {
+  background: #3a6386;
+  color: #fff;
+}
+
+.chains-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  justify-content: center;
+}
+
+.chain-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 260px;
+  position: relative;
+  padding-top: 4px;
+}
+
+.chain-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  background: #f9fafb;
+  border: 1px solid #eaeaea;
+  border-radius: 8px;
+  padding: 10px 14px 8px 8px;
+  position: relative;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.control-group label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #888;
+  margin-bottom: 2px;
+}
+.control-inputs {
+  display: flex;
+  gap: 4px;
+}
+.control-group .form-group {
+  margin-bottom: 0;
+}
+.control-group input[type="number"] {
+  padding: 2px 4px;
+  font-size: 12px;
+  height: 28px;
+}
+
+.btn-modification {
+  background: #fff3d6;
+  border: 1px solid #e0a800;
+  color: #8a6300;
+  font-size: 13px;
+  border-radius: 5px;
+  padding: 3px 10px;
+  line-height: 1.2;
+}
+.btn-modification:hover {
+  background: #ffe9b3;
+  color: #6b4b00;
+}
+
+.btn-remove-chain {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: #c0392b;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1.2;
+}
+.btn-remove-chain:hover {
+  color: #e74c3c;
+}
+
+/* Modifikations-Chips oberhalb/unterhalb der Kette */
+.mods-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  min-height: 24px;
+}
+.mods-above {
+  margin-bottom: 2px;
+}
+.mods-below {
+  margin-top: 2px;
+}
+
+.mod-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #fff3d6;
+  border: 1px solid #e0a800;
+  border-radius: 12px;
+  padding: 1px 2px 1px 8px;
+}
+.mod-chip .form-group {
+  margin-bottom: 0;
+}
+.mod-chip input[type="text"] {
+  height: 22px;
+  padding: 0 4px;
+  font-size: 11px;
+  border: none;
+  background: transparent;
+  font-family: "Courier New", monospace;
+  box-shadow: none;
+}
+.btn-remove-mod {
+  background: none;
+  border: none;
+  color: #8a6300;
+  font-size: 12px;
+  padding: 0 5px;
+  line-height: 1;
+}
+.btn-remove-mod:hover {
+  color: #5c4200;
+}
+
+/* Kette + m/z-Box nebeneinander */
+.chain-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.chain-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.chain-connector {
+  width: 2px;
+  height: 12px;
+  background: #999;
+}
+
+.lipid-chain-svg {
+  display: block;
+  min-width: 160px;
+}
+
+.mz-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #f4f7fb;
+  border: 1px solid #c9d6e3;
+  border-radius: 6px;
+  padding: 6px 10px;
+  white-space: nowrap;
+  font-family: "Courier New", monospace;
+}
+.mz-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  color: #6d7f91;
+  margin-bottom: 2px;
+}
+.mz-value {
+  font-weight: 600;
+  font-size: 12px;
+  color: #2c3e50;
+}
+.mz-sep {
+  color: #999;
+  font-size: 10px;
+}

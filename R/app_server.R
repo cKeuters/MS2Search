@@ -106,6 +106,8 @@ app_server <- function(input, output, session) {
   log_state <- reactiveValues(file = NULL)
   log_text <- reactiveVal("")
   
+  lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1")
+  
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
   #-----------------------------------------------------------------------------
@@ -667,7 +669,9 @@ app_server <- function(input, output, session) {
                   )
               )
           )
-        )
+        ),
+        column(width = 12, mod_LipidDefinition_ui("LipidDefinition_1"))
+        
       )
     )
     
