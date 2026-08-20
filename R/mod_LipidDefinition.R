@@ -24,16 +24,16 @@ mod_LipidDefinition_ui <- function(id) {
       div(id = ns("chains_container"), class = "chains-container")
     )
   )
-
+  
 }
-    
+
 #' LipidDefinition Server Functions
 #'
 #' @noRd 
-mod_LipidDefinition_server <- function(id){
+mod_LipidDefinition_server <- function(id, load_trigger){
   moduleServer(id, function(input, output, session){
     ns <- session$ns
-
+    
     lipid_definition_state <- reactiveValues(
       headgroup = NULL
     )
@@ -49,8 +49,12 @@ mod_LipidDefinition_server <- function(id){
       chain_modules[[cid]] <- NULL
       chain_ids(setdiff(chain_ids(), cid))
     }
-
+    
     observeEvent(input$add_chain, {
+      add_chain_to_ui(init_chain = empty_chain)
+    }, ignoreInit = TRUE)
+    
+    add_chain_to_ui <- function(init_chain){
       cid <- as.character(next_chain_id())
       chain_ids(c(chain_ids(), cid))
       
@@ -61,24 +65,44 @@ mod_LipidDefinition_server <- function(id){
         where = "beforeEnd",
         ui = div(
           id = ns(paste0("chain_wrap_", cid)),
-          chain_block_ui(ns(child_id))
-        ),
-        immediate = TRUE  
+          chain_block_ui(ns(child_id), init_chain)
+        )
       )
       
-      chain_modules[[cid]] <- chain_block_server(child_id, cid, remove_chain) 
+      chain_modules[[cid]] <- chain_block_server(child_id, cid, init_chain, remove_chain) 
       next_chain_id(next_chain_id() + 1)
+      
+    }
+    
+    observeEvent(load_trigger(), {
+      req(load_trigger())
+      chains_to_load <- load_trigger()
+      cat("load_trigger fired, n chains:", length(chains_to_load), "\n")
+      
+      isolate({
+        for (chain in chains_to_load) {
+          tryCatch({
+            add_chain_to_ui(chain)
+          }, error = function(e) {
+            cat("ERROR in add_chain_to_ui:", conditionMessage(e), "\n")
+          })
+        }
+      })
+    }, ignoreNULL = TRUE, ignoreInit = TRUE)
+    
+    reactive({
+      ids <- chain_ids()
+      if (length(ids) == 0) return(list())
+      lapply(ids, function(cid) chain_modules[[cid]]())
     })
     
-
- 
   })
 }
 
 
 #' UI-Block fuer eine einzelne Kette
 #' @noRd
-chain_block_ui <- function(id) {
+chain_block_ui <- function(id, init_chain) {
   ns <- NS(id)
   div(
     id = ns("chain_block_"),
@@ -91,8 +115,8 @@ chain_block_ui <- function(id) {
         tags$label("C-Atoms"),
         div(
           class = "control-inputs",
-          numericInput(ns("c_min"), "min", value = 10, min = 1, max = 50, width = "62px"),
-          numericInput(ns("c_max"), "max", value = 14, min = 1, max = 50, width = "62px")
+          numericInput(ns("c_min"), "min", value = init_chain$C_min, min = 1, max = 100, width = "62px"),
+          numericInput(ns("c_max"), "max", value = init_chain$C_max, min = 1, max = 100, width = "62px")
         )
       ),
       div(
@@ -100,8 +124,8 @@ chain_block_ui <- function(id) {
         tags$label("Double Bounds"),
         div(
           class = "control-inputs",
-          numericInput(ns("db_min"), "min", value = 0, min = 0, max = 20, width = "62px"),
-          numericInput(ns("db_max"), "max", value = 1, min = 0, max = 20, width = "62px")
+          numericInput(ns("db_min"), "min", value = init_chain$DB_min, min = 0, max = 50, width = "62px"),
+          numericInput(ns("db_max"), "max", value = init_chain$DB_max, min = 0, max = 50, width = "62px")
         )
       ),
       div(
@@ -113,6 +137,7 @@ chain_block_ui <- function(id) {
     div(id = ns("mods_above"), class = "mods-row mods-above"),
     div(
       class = "chain-row",
+      uiOutput(ns("chain_priority")),
       div(
         class = "chain-visual",
         div(class = "chain-connector"),
@@ -124,7 +149,7 @@ chain_block_ui <- function(id) {
   )
 }
 
-chain_block_server <- function(server_id, id, on_remove ) {
+chain_block_server <- function(server_id, id, init_chain, on_remove ) {
   moduleServer(server_id, function(input, output, session) {
     ns <- session$ns
     cat("chain_block_server id =", server_id, "\n")
@@ -134,6 +159,7 @@ chain_block_server <- function(server_id, id, on_remove ) {
       C_max = 20,
       DB_min = 0,
       DB_max = 1,
+      priority = "basic",
       modifications = list()
     )
     mod_ids <- reactiveVal(1)
@@ -142,7 +168,13 @@ chain_block_server <- function(server_id, id, on_remove ) {
       calc_chain_mz_range(reactiveValuesToList(chain_state))
     })
     
+    output$chain_priority <- renderUI({
+      createPriorityRadioButtons(ns("chain_priority"), chain_state$priority)
+    })
+    
     observeEvent(input$c_min, {
+      if(input$c_min < 0) updateNumericInput(session, "c_min", value = 0)
+      if(input$c_min > 100) updateNumericInput(session, "c_min", value = 100)
       chain_state$C_min <- input$c_min
       updateNumericInput(
         session, "c_max",
@@ -152,11 +184,15 @@ chain_block_server <- function(server_id, id, on_remove ) {
     })
     
     observeEvent(input$c_max, {
+      if(input$c_max < 0) updateNumericInput(session, "c_max", value = 0)
+      if(input$c_max > 100) updateNumericInput(session, "c_max", value = 100)
       chain_state$C_max <- input$c_max
       test_maxDB()
     })
     
     observeEvent(input$db_min, {
+      if(input$db_min < 0) updateNumericInput(session, "db_min", value = 0)
+      if(input$db_min > 50) updateNumericInput(session, "db_min", value = 50)
       chain_state$DB_min <- input$db_min
       updateNumericInput(
         session, "db_max",
@@ -166,6 +202,8 @@ chain_block_server <- function(server_id, id, on_remove ) {
     })
     
     observeEvent(input$db_max, {
+      if(input$db_max < 0) updateNumericInput(session, "db_max", value = 0)
+      if(input$db_max > 50) updateNumericInput(session, "db_max", value = 50)
       chain_state$DB_max <- input$db_max
     })
     
@@ -182,55 +220,106 @@ chain_block_server <- function(server_id, id, on_remove ) {
         value = min(input$db_min, max_db)
       )
     }
-    #isolate({ for (e in initial$entries) add_entry(e, defer_ui = TRUE) })
     
     observeEvent(input$remove_chain, on_remove(id), ignoreInit = TRUE)
     
     observeEvent(input$add_mod,{
-      n_mods <- mod_ids()
-      cat(paste("mods:",n_mods,"\n"))
-      mid <- paste0("mods_", n_mods) 
-      position <- if (n_mods %% 2 == 0) "above" else "below"
-      target <- paste0("mods_", position)
-
-      insertUI(
-        selector = paste0("#",ns(target)),
-        where = "beforeEnd",
-        ui = mod_chip_ui(ns, mid),
-        immediate = TRUE
-      )
-      chain_state$modifications[[mid]] <- list(
-        formula = "",
-        optional = TRUE
-      )
-      
-      observeEvent(input[[paste0(mid, "_formula")]],{
-        chain_state$modifications[[mid]]$formula <- input[[paste0(mid, "_formula")]]
-      })
-      observeEvent(input[[paste0(mid, "_mod_optional")]],{
-        chain_state$modifications[[mid]]$optional <- input[[paste0(mid, "_mod_optional")]]
-      })
-      observeEvent(input[[paste0(mid, "_remove")]],{
-        chain_state$modifications[[mid]] <- NULL
-        removeUI(selector = paste0("#", ns(paste0("mod_chip_", mid))))
-        
-      })
-      
-      mod_ids(mod_ids()+1)
+      init_mod <- list(formula = "", optional = TRUE)
+      add_mod_to_ui(init_mod)
       
     })
     
+    register_mod_observers <- function(mid, init_mod) {
+      chain_state$modifications[[mid]] <- list(
+        formula = init_mod$formula,
+        optional = init_mod$optional
+      )
+      observeEvent(input[[paste0(mid, "_formula")]], {
+        chain_state$modifications[[mid]]$formula <- input[[paste0(mid, "_formula")]]
+      })
+      observeEvent(input[[paste0(mid, "_mod_optional")]], {
+        chain_state$modifications[[mid]]$optional <- input[[paste0(mid, "_mod_optional")]]
+      })
+      observeEvent(input[[paste0(mid, "_remove")]], {
+        chain_state$modifications[[mid]] <- NULL
+        removeUI(selector = paste0("#", ns(paste0("mod_chip_", mid))))
+      })
+    }
+    
+    add_mod_to_ui <- function(init_mod) {
+      n_mods <- mod_ids()
+      mid <- paste0("mods_", n_mods)
+      position <- if (n_mods %% 2 == 0) "above" else "below"
+      target <- paste0("mods_", position)
+      
+      insertUI(
+        selector = paste0("#", ns(target)),
+        where = "beforeEnd",
+        ui = mod_chip_ui(ns, mid, init_mod),
+        immediate = TRUE
+      )
+      register_mod_observers(mid, init_mod)
+      mod_ids(mod_ids() + 1)
+    }
+    
+    isolate({
+      init_mods <- init_chain$modifications
+      for (i in seq_along(init_mods)) {
+        mid <- paste0("mods_", i)
+        register_mod_observers(mid, init_mods[[i]])
+      }
+      mod_ids(length(init_mods))
+    })
+    
+
+
+    
+    # add_mod_to_ui <- function(init_mod){
+    #   n_mods <- mod_ids()
+    #   cat(paste("mods:",n_mods,"\n"))
+    #   mid <- paste0("mods_", n_mods) 
+    #   position <- if (n_mods %% 2 == 0) "above" else "below"
+    #   target <- paste0("mods_", position)
+    #   
+    #   insertUI(
+    #     selector = paste0("#",ns(target)),
+    #     where = "beforeEnd",
+    #     ui = mod_chip_ui(ns, mid, init_mod),
+    #     immediate = TRUE
+    #   )
+    #   chain_state$modifications[[mid]] <- list(
+    #     formula = "",
+    #     optional = TRUE
+    #   )
+    #   
+    #   observeEvent(input[[paste0(mid, "_formula")]],{
+    #     chain_state$modifications[[mid]]$formula <- input[[paste0(mid, "_formula")]]
+    #   })
+    #   observeEvent(input[[paste0(mid, "_mod_optional")]],{
+    #     chain_state$modifications[[mid]]$optional <- input[[paste0(mid, "_mod_optional")]]
+    #   })
+    #   observeEvent(input[[paste0(mid, "_remove")]],{
+    #     chain_state$modifications[[mid]] <- NULL
+    #     removeUI(selector = paste0("#", ns(paste0("mod_chip_", mid))))
+    #     
+    #   })
+    #   print("hi")
+    #   mod_ids(mod_ids()+1)
+    # }
+    # isolate({ for (mod in init_chain$modifications) add_mod_to_ui(mod) })
+    # 
+    
     output$chain_svg <- renderUI({
       req(chain_state$C_min, chain_state$C_max)
-        HTML(
-          build_chain_svg(
-            chain_state$C_min,
-            chain_state$C_max,
-            chain_state$DB_min,
-            chain_state$DB_max
-          )
+      HTML(
+        build_chain_svg(
+          chain_state$C_min,
+          chain_state$C_max,
+          chain_state$DB_min,
+          chain_state$DB_max
         )
-      })
+      )
+    })
     
     
     #' box with min and max mz values of chain
@@ -246,19 +335,29 @@ chain_block_server <- function(server_id, id, on_remove ) {
         tags$span(class = "mz-value", sprintf("%.4f", range$max))
       )}
     ) 
-  
+    
+    reactive({
+      list(
+        C_min = chain_state$C_min,
+        C_max = chain_state$C_max,
+        DB_min = chain_state$DB_min,
+        DB_max = chain_state$DB_max,
+        priority = chain_state$priority,
+        modifications = chain_state$modifications
+      )
+    })
     
   })
-  }
+}
 
 #' UI-Chip for one modification
 #' @noRd
-mod_chip_ui <- function(ns, mid) {
+mod_chip_ui <- function(ns, mid, init_mod) {
   div(
     id = ns(paste0("mod_chip_", mid)),
     class = "mod-chip",
-    textInput(ns(paste0(mid, "_formula")), NULL, placeholder = "C2H4O", width = "72px"),
-    checkboxInput(ns(paste0(mid,"_mod_optional")), "Optional", value = TRUE),
+    textInput(ns(paste0(mid, "_formula")), NULL, placeholder = "e.g. OH", value = init_mod$formula,  width = "72px"),
+    checkboxInput(ns(paste0(mid,"_mod_optional")), "Optional", value = init_mod$optional),
     actionButton(ns(paste0(mid, "_remove")), "\u00d7", class = "btn-remove-mod")
   )
 }
@@ -286,6 +385,8 @@ mod_chip_server <- function(id) {
 #' @noRd
 build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
   c_max  <- max(c_max, c_min, 1)
+  if(c_max > 100)return()
+  if(db_max > 50)return() 
   db_max <- max(db_max, db_min, 0)
   
   dx <- 24; dy <- 16
@@ -337,9 +438,49 @@ build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
   )
 }
 
+#' @import Rdisop
+#' @noRd
 calc_chain_mz_range <- function(chain_state){
   
-  list(min=2, max = 3, all = c(2,3))
+  mz_mod_min <- 0
+  mz_mod_max <- 0
+  for(mod in chain_state$modifications){
+    if(mod$formula == "")next
+    molecule <- Rdisop::getMolecule(mod$formula)
+    mz_mod_max <- mz_mod_max + Rdisop::getMass(molecule) 
+    if(!mod$optional)mz_mod_min <- mz_mod_min + Rdisop::getMass(molecule) 
+  }
+  chain_mass_min <- ((chain_state$C_min * atom_masses$C) 
+                     + (chain_state$C_min * 2 * atom_masses$H) 
+                     - (sum(vapply(chain_state$modifications,function(x) isFALSE(x$optional) & x$formula != "",logical(1)))* atom_masses$H)
+                     - (chain_state$DB_max * 2 * atom_masses$H)
+                     + mz_mod_min)
+  
+  chain_mass_max <- ((chain_state$C_max * atom_masses$C) 
+                     + (chain_state$C_max * 2 * atom_masses$H) 
+                     - (sum(vapply(chain_state$modifications,function(x) x$formula != "",logical(1)))* atom_masses$H)
+                     - (chain_state$DB_min * 2 * atom_masses$H)
+                     + mz_mod_max)
+  
+  
+  list(min= chain_mass_min, max = chain_mass_max)
 }
 
+atom_masses <- list(
+  H = 1.00783,
+  C = 12.00000,
+  N = 14.00307,
+  O = 15.99491,
+  P = 30.97376,
+  S = 31.97207
+)
+
+empty_chain <- list(
+  C_min = 10,
+  C_max = 20,
+  DB_min = 0,
+  DB_max = 1,
+  priority = "basic",
+  modifications = list()
+)
 

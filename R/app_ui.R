@@ -33,6 +33,7 @@ app_ui <- function(request) {
 		  shinyjs::hidden(div(id = "analysis_screen",
 		        create_topbar_InProject(),
 		        uiOutput("analysis_ui"), 
+		        mod_LipidDefinition_ui("LipidDefinition_1"),
 		        shinyjs::hidden(
 		          div(id = "cards_section",
 		              uiOutput("rule_coordination"),

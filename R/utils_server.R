@@ -12,7 +12,7 @@
 #' @return The return value, if any, from executing the utility.
 #'
 #' @noRd
-create_settings_list <- function(state, basicFilterValues, toolSettings, cards){
+create_settings_list <- function(state, basicFilterValues, toolSettings, cards, lipid_definition){
   
   settings_list <- list(
     project_info = list(
@@ -50,6 +50,7 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards){
     settings_list,
     list(specific_filters = cards)
   )
+  settings_list <- c(settings_list, list(lipid_definition = lipid_definition))
   
   return(settings_list)
 }

@@ -106,7 +106,6 @@ app_server <- function(input, output, session) {
   log_state <- reactiveValues(file = NULL)
   log_text <- reactiveVal("")
   
-  lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1")
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -246,7 +245,7 @@ app_server <- function(input, output, session) {
       state = reactiveValuesToList(state),
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data()),
+      cards   = all_cards_data(), lipid_definition = all_chain_data()),
       analysis_results$results,
       analysis_results$spectra,
       paste0(state$out_dir, "/", state$project_name,".zip")
@@ -299,8 +298,8 @@ app_server <- function(input, output, session) {
       state$screen <- "Results"
     }
     
-    
-  })
+    lipid_load_trigger(settings_list$lipid_definition)
+    })
   
   #-----------------------------------------------------------------------------
   # Rule based interactions
@@ -360,6 +359,17 @@ app_server <- function(input, output, session) {
     next_card_id(new_id + 1)
   }
   
+  #-----------------------------------------------------------------------------
+  # Lipid Design
+  #-----------------------------------------------------------------------------
+  
+  lipid_load_trigger <- reactiveVal(NULL)
+  
+  lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1", lipid_load_trigger)
+  
+  all_chain_data <- reactive({
+    lipidDefinitionServer()
+  })
   
   #-----------------------------------------------------------------------------
   # Results
@@ -401,12 +411,13 @@ app_server <- function(input, output, session) {
     #append_log("Starting Analysis")
     
     ms2_path <- input$ms2_file$datapath
-    
+
     settings <- create_settings_list(
       state             = reactiveValuesToList(state),
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings      = reactiveValuesToList(ToolSettings),
-      cards             = all_cards_data()
+      cards             = all_cards_data(),
+      lipid_definition   = all_chain_data()
     )
     
     log_file <- tempfile(paste0("analysis_log_", state$project_name), fileext = ".txt")
@@ -669,8 +680,8 @@ app_server <- function(input, output, session) {
                   )
               )
           )
-        ),
-        column(width = 12, mod_LipidDefinition_ui("LipidDefinition_1"))
+        )
+        #column(width = 12, mod_LipidDefinition_ui("LipidDefinition_1"))
         
       )
     )

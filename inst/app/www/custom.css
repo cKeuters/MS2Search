@@ -737,7 +737,6 @@ table.dataTable tbody tr.selected {
   border: 1px solid #e2e2e2;
   border-radius: 10px;
   padding: 20px 24px;
-  max-width: 960px;
 }
 
 .lipid-def-panel h3 {
@@ -876,10 +875,10 @@ table.dataTable tbody tr.selected {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  background: #fff3d6;
+  background: #fff;
   border: 1px solid #e0a800;
-  border-radius: 12px;
-  padding: 1px 2px 1px 8px;
+  border-radius: 8px;
+  padding: 4px 4px 4px 8px;
 }
 .mod-chip .form-group {
   margin-bottom: 0;
@@ -955,4 +954,44 @@ table.dataTable tbody tr.selected {
 .mz-sep {
   color: #999;
   font-size: 10px;
+}
+
+/* checkbox */
+
+.mod-chip .checkbox {
+  margin: 0;
+}
+.mod-chip .checkbox label {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 1px;
+  padding-left: 0;   
+  margin-bottom: 0;
+  cursor: pointer;
+}
+.mod-chip .checkbox label span {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  color: #e0a800;
+  white-space: nowrap;
+}
+.mod-chip .checkbox input[type="checkbox"] {
+  position: static;   
+  margin: 0;
+  width: 12px;
+  height: 12px;
+  accent-color: #E5E4E2;
+  cursor: pointer;
+}
+
+/* Shiny's Standard-Containerbreite (300px) innerhalb des Chips aufheben */
+.mod-chip .shiny-input-container {
+  width: auto;
+}
+
+/* verhindert zusätzlich, dass der Chip sich im flex-wrap-Elternelement streckt */
+.mod-chip {
+  flex: 0 0 auto;
 }
