@@ -42,7 +42,8 @@ app_ui <- function(request) {
 		        shinyjs::hidden(
 		          div(id = "analysis_footer",
 		              fluidRow(column(12, align = "center",
-		                              actionButton("run_analysis", "Run Analysis", class = "btn-primary btn-lg start-btn")))
+		                              actionButton("run_analysis", "Run Analysis", class = "btn-primary btn-lg start-btn"),
+		                              actionButton("export_brkrrba", "Export brkrrba", class = "btn-primary btn-lg start-btn")))
 		          )
 		       ) )
 		      )

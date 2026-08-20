@@ -1,6 +1,4 @@
 
-#text logging for results
-
 #-------------------------------------------------------------------------------
 # Save and Load parameters
 #-------------------------------------------------------------------------------
@@ -175,4 +173,146 @@ get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", noi
   subsp
   
 }
+
+
+#-------------------------------------------------------------------------------
+# create brkrrba file
+#-------------------------------------------------------------------------------
+
+create_brkrrba_file <- function(settings_list){
+  
+  neutralPrecursorFormula <- "{backbone}+C{carbonsInAllChains}+H({carbonsInAllChains}*2-{DBEinAllChains}*2)"
+  
+  searchedSpecies <- "CER"
+  annotationName <- sprintf("%s {carbonsInAllChains}:{DBEinAllChains}", searchedSpecies )
+  
+  
+  #chains to query
+  sublevel_chain_definition <- Map(function(x,i){
+    formula = paste0(
+      "C{carbonsPerChain", i, "}+H({carbonsPerChain", i,"}*2-{DBEPerChain", i, "}*2)",
+      if (length(x$modifications) > 0)
+        paste0(" + ", paste(sapply(x$modifications, `[[`, "formula"), collapse = " + "))
+      else ""
+      )
+
+    list(
+      level = "Chain Level",
+      annotationName = "Unknown Annotation Name",
+      descriptors = list(
+        label = paste0("Chain ", i),
+        query = sprintf("QUERY scaninfo(MS2DATA) WHERE MS2NL=formula(%s):TOLERANCEMZ=0.01",formula),
+        signalInfoLabel = paste0("{carbonsPerChain",i,"}:{DBEPerChain",i,"}")
+      ),
+      requiredSignalsForAnnotation = 1,
+      validationRule = ""
+    )
+  },
+   settings_list$lipid_definition,
+   seq_along(settings_list$lipid_definition))
+  
+  
+  
+  sublevel_rule_definition <- Map(function(x,i){
+    masses <- vapply(x$entries, function(e) {
+      resolve_mass(list(input_type = x$input_type, value = e$value, is_mzPeak = x$is_mzPeak),settings_list$project_info$mode)
+    }, numeric(1))
+    
+    NL_or_peak <- ifelse(x$is_mzPeak, "MS2PROD", "MS2NL")
+    query <- paste0("QUERY scaninfo(MS2DATA) WHERE ",NL_or_peak ,"=(",
+                    paste(masses, collapse = " OR "),
+                    "):TOLERANCEMZ=0.01")
+    
+    signalInfoLabel <- paste0(NL_or_peak, ": ", paste(sapply(x$entries, `[[`, "value"), collapse = ", "))
+    
+    list(
+      level = "Rule Level",
+      annotationName = "Unknown Annotation Name",
+      descriptors = list(
+        label = x$label,
+        query = query,
+        signalInfoLabel = signalInfoLabel
+      ),
+      requiredSignalsForAnnotation = 1
+    )
+  },
+  settings_list$specific_filters,
+  seq_along(settings_list$specific_filters))
+  
+  
+  #full structure
+  lipid_def <- list(
+    variables = c(list(
+      list(
+        name = "backbone",
+        valueType = "formula",
+        value = settings_list$head_group
+      ),
+      list(name = "numberOfChains",
+           valueType = "int",
+           value = length(settings_list$lipid_definition)
+           ),
+      list(
+        name = "carbonsInAllChains",
+        valueType = "intRange",
+        value = c(sum(unlist(lapply(settings_list$lipid_definition, function(x){x$C_min}))),
+                  sum(unlist(lapply(settings_list$lipid_definition, function(x){x$C_max}))))
+      ),
+      list(
+        name = "DBEinAllChains",
+        valueType = "intRange",
+        value = c(sum(unlist(lapply(settings_list$lipid_definition, function(x){x$DB_min}))),
+                  sum(unlist(lapply(settings_list$lipid_definition, function(x){x$DB_max}))))
+      )
+    ),
+    unname(Map(function(x, i) {
+      list(
+        name = paste0("carbonsPerChain", i),
+        valueType = "intRange",
+        value = c(x$C_min, x$C_max)
+      )
+    },
+    settings_list$lipid_definition,
+    seq_along(settings_list$lipid_definition)))
+    ,
+    unname(Map(function(x, i) {
+      list(
+        name = paste0("DBEPerChain", i),
+        valueType = "intRange",
+        value = c(x$DB_min, x$DB_max)
+      )
+    },
+    settings_list$lipid_definition,
+    seq_along(settings_list$lipid_definition)))
+    ),
+    annotation = 
+      list(
+        polarityType = ifelse(settings_list$project_info$mode == "pos", "positive", "negative"),
+        annotationProfile = 
+          list(
+            ionNotation = ifelse(settings_list$project_info$mode == "pos", "M+H", "M-H"),
+            neutralPrecursorFormula = neutralPrecursorFormula,
+            regressionParametersCCS = list(),
+            annotationConfiguration =
+              list(
+                level = "Species Level",
+                annotationName = annotationName,
+                descriptors = list(),
+                sublevel = c(sublevel_chain_definition, sublevel_rule_definition)
+              )
+          )
+      )
+  )
+  
+  write(toJSON(lipid_def, auto_unbox = TRUE, pretty = TRUE), paste0("../lipid_def",settings_list$project_info$project_name,".json"))
+  
+  
+}
+
+
+
+
+
+
+
 

@@ -226,6 +226,16 @@ app_server <- function(input, output, session) {
      state$screen <- "Results"
    })
   
+  observeEvent(input$export_brkrrba, {
+    create_brkrrba_file(create_settings_list(
+      state = reactiveValuesToList(state),
+      basicFilterValues = reactiveValuesToList(basicFilterValues),
+      toolSettings = reactiveValuesToList(ToolSettings),
+      cards   = all_cards_data(), 
+      lipid_definition = all_chain_data()))
+  })
+  
+  
   
   #-----------------------------------------------------------------------------
   # Load and Save Project
