@@ -106,6 +106,8 @@ app_server <- function(input, output, session) {
   log_state <- reactiveValues(file = NULL)
   log_text <- reactiveVal("")
   
+  brkrrba_save <- reactiveVal("")
+  
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -227,12 +229,19 @@ app_server <- function(input, output, session) {
    })
   
   observeEvent(input$export_brkrrba, {
-    create_brkrrba_file(create_settings_list(
+    settings_list <- create_settings_list(
       state = reactiveValuesToList(state),
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
       cards   = all_cards_data(), 
-      lipid_definition = all_chain_data()))
+      lipid_definition = all_chain_data())
+    if(length(settings_list$specific_filters) == 0 & length(settings_list$lipid_definition) == 0 ){
+      brkrrba_save("Define Chains or Rules for a brkrrba-file")
+    }else{
+      create_brkrrba_file(settings_list)
+      brkrrba_save("brkrrba saved")
+    }
+
   })
   
   
@@ -592,10 +601,14 @@ app_server <- function(input, output, session) {
         )
       )
     )     
-    
-    
-    
+
     })
+  
+  
+  output$saved_brkrrba <- renderText({
+    brkrrba_save()
+  })
+  
   output$analysis_ui <- renderUI({ 
     
     tagList(
@@ -607,10 +620,6 @@ app_server <- function(input, output, session) {
           ")),
       createAnalysisLegend(),
       fluidRow(
-        #   column(
-        #     width = 12,
-        #     lipidDefinitionUI("lipid")
-        #   ),
         column(
           width = 4,
           div(class = "card analysis-card",
@@ -691,8 +700,7 @@ app_server <- function(input, output, session) {
               )
           )
         )
-        #column(width = 12, mod_LipidDefinition_ui("LipidDefinition_1"))
-        
+
       )
     )
     

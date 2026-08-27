@@ -41,12 +41,24 @@ app_ui <- function(request) {
 		        ),
 		        shinyjs::hidden(
 		          div(id = "analysis_footer",
-		              fluidRow(column(12, align = "center",
-		                              actionButton("run_analysis", "Run Analysis", class = "btn-primary btn-lg start-btn"),
-		                              actionButton("export_brkrrba", "Export brkrrba", class = "btn-primary btn-lg start-btn")))
+		              fluidRow(
+		                column(
+		                  12,
+		                  div(
+		                    style = "display:flex; justify-content:center; gap:10px;",
+		                    actionButton("run_analysis", "Run Analysis", class = "btn-primary btn-lg start-btn"),
+		                    div(actionButton("export_brkrrba", "Export brkrrba", class = "btn-primary btn-lg start-btn"),
+		                        div(
+		                          style = "position:absolute; top:100%; left:0; width:100%; text-align:center;",
+		                          textOutput("saved_brkrrba")
+		                        )
+		                    )
+		                )
+		              )
 		          )
-		       ) )
-		      )
+		          )
+		        )
+		    )
 		    ),
 		  # --- Results Screen ---
 		  shinyjs::hidden(
@@ -69,7 +81,7 @@ app_ui <- function(request) {
 		          )
 		        ))
 		  )
-		
+		        )
 		)
 	)
 }

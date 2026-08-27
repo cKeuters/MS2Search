@@ -188,57 +188,70 @@ create_brkrrba_file <- function(settings_list){
   
   
   #chains to query
-  sublevel_chain_definition <- Map(function(x,i){
+  if(is.null(settings_list$lipid_definition) || length(settings_list$lipid_definition) == 0) sublevel_chain_definition <- list()
+  else{
+  sublevel_chain_definition <- setNames(
+    lapply(seq_along(settings_list$lipid_definition), function(i) {
+      x <- settings_list$lipid_definition[[i]]
+      
     formula = paste0(
       "C{carbonsPerChain", i, "}+H({carbonsPerChain", i,"}*2-{DBEPerChain", i, "}*2)",
       if (length(x$modifications) > 0)
         paste0(" + ", paste(sapply(x$modifications, `[[`, "formula"), collapse = " + "))
       else ""
       )
-
-    list(
-      level = "Chain Level",
-      annotationName = "Unknown Annotation Name",
-      descriptors = list(
-        label = paste0("Chain ", i),
-        query = sprintf("QUERY scaninfo(MS2DATA) WHERE MS2NL=formula(%s):TOLERANCEMZ=0.01",formula),
-        signalInfoLabel = paste0("{carbonsPerChain",i,"}:{DBEPerChain",i,"}")
-      ),
-      requiredSignalsForAnnotation = 1,
-      validationRule = ""
-    )
-  },
-   settings_list$lipid_definition,
-   seq_along(settings_list$lipid_definition))
-  
-  
-  
-  sublevel_rule_definition <- Map(function(x,i){
-    masses <- vapply(x$entries, function(e) {
-      resolve_mass(list(input_type = x$input_type, value = e$value, is_mzPeak = x$is_mzPeak),settings_list$project_info$mode)
-    }, numeric(1))
     
-    NL_or_peak <- ifelse(x$is_mzPeak, "MS2PROD", "MS2NL")
-    query <- paste0("QUERY scaninfo(MS2DATA) WHERE ",NL_or_peak ,"=(",
-                    paste(masses, collapse = " OR "),
-                    "):TOLERANCEMZ=0.01")
+      list(
+        level = "Chain Level",
+        annotationName = "Unknown Annotation Name",
+        descriptors = list(list(
+          label = paste0("Chain ", i),
+          query = sprintf(
+            "QUERY scaninfo(MS2DATA) WHERE MS2NL=formula(%s):TOLERANCEMZ=0.01",
+            formula
+          ),
+          signalInfoLabel = paste0("{carbonsPerChain", i, "}:{DBEPerChain", i, "}")
+          #requiredSignalsForAnnotation = 1
+          #validationRule = ""
+        ))
+      )
+      
     
-    signalInfoLabel <- paste0(NL_or_peak, ": ", paste(sapply(x$entries, `[[`, "value"), collapse = ", "))
-    
-    list(
-      level = "Rule Level",
-      annotationName = "Unknown Annotation Name",
-      descriptors = list(
-        label = x$label,
-        query = query,
-        signalInfoLabel = signalInfoLabel
-      ),
-      requiredSignalsForAnnotation = 1
-    )
-  },
-  settings_list$specific_filters,
-  seq_along(settings_list$specific_filters))
+    }),
+    paste0("Chain", seq_along(settings_list$lipid_definition))
+  )}
   
+  if(is.null(settings_list$specific_filters) || length(settings_list$specific_filters) == 0) sublevel_rule_definition <- list()
+  else{
+  
+  sublevel_rule_definition <- setNames(
+    lapply(seq_along(settings_list$specific_filters), function(i) {
+      x <- settings_list$specific_filters[[i]]
+      masses <- vapply(x$entries, function(e) {
+        resolve_mass(list(input_type = x$input_type, value = e$value, is_mzPeak = x$is_mzPeak),settings_list$project_info$mode)
+      }, numeric(1))
+      
+      NL_or_peak <- ifelse(x$is_mzPeak, "MS2PROD", "MS2NL")
+      query <- paste0("QUERY scaninfo(MS2DATA) WHERE ",NL_or_peak ,"=(",
+                      paste(masses, collapse = " OR "),
+                      "):TOLERANCEMZ=0.01")
+      
+      signalInfoLabel <- paste0(NL_or_peak, ": ", paste(sapply(x$entries, `[[`, "value"), collapse = ", "))
+      
+      list(
+        level = "Rule Level",
+        annotationName = "Unknown Annotation Name",
+        descriptors = list(list(
+          label = x$label,
+          query = query,
+          signalInfoLabel = signalInfoLabel
+        )),
+        requiredSignalsForAnnotation = 1
+      )
+    }),
+    paste0("Rule", seq_along(settings_list$specific_filters))
+  )
+  }
   
   #full structure
   lipid_def <- list(
@@ -286,26 +299,32 @@ create_brkrrba_file <- function(settings_list){
     seq_along(settings_list$lipid_definition)))
     ),
     annotation = 
-      list(
+      list(list(
         polarityType = ifelse(settings_list$project_info$mode == "pos", "positive", "negative"),
         annotationProfile = 
-          list(
-            ionNotation = ifelse(settings_list$project_info$mode == "pos", "M+H", "M-H"),
+          list(list(
+            ionNotation = ifelse(settings_list$project_info$mode == "pos", "[M+H]+", "[M-H]-"),
             neutralPrecursorFormula = neutralPrecursorFormula,
-            regressionParametersCCS = list(),
+            #regressionParametersCCS = list(),
             annotationConfiguration =
-              list(
+              c(
                 level = "Species Level",
                 annotationName = annotationName,
-                descriptors = list(),
-                sublevel = c(sublevel_chain_definition, sublevel_rule_definition)
+                #descriptors = list(),
+                sublevel_chain_definition,
+                sublevel_rule_definition
               )
-          )
+          ))
+      )
       )
   )
   
-  write(toJSON(lipid_def, auto_unbox = TRUE, pretty = TRUE), paste0("../lipid_def",settings_list$project_info$project_name,".json"))
+  json_file <- paste0(settings_list$project_info$out_dir,"/lipid_def_",settings_list$project_info$project_name,".brkrrba")
+  write(toJSON(lipid_def, auto_unbox = TRUE, pretty = TRUE), json_file)
   
+  txt <- readLines(json_file)
+  txt <- gsub('"([^"]+)":', '\\1:', txt)
+  writeLines(txt, json_file)
   
 }
 
