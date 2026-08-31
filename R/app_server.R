@@ -244,6 +244,14 @@ app_server <- function(input, output, session) {
 
   })
   
+  output$export_results <- downloadHandler(
+    filename = function() {
+      paste("test", ".csv", sep = "")
+    },
+    content = function(file) {
+      write.csv(analysis_results$results(), file, row.names = FALSE)
+    }
+  )
   
   
   #-----------------------------------------------------------------------------
@@ -277,6 +285,8 @@ app_server <- function(input, output, session) {
     settings_list <- loaded_project$settings_list
     project_results <- loaded_project$results
     project_spectra <- loaded_project$spectra
+    
+    for(id in card_ids()) delete_card_by_id(id)
     
     pi <- settings_list$project_info
     state$project_name <- pi$project_name
@@ -407,13 +417,19 @@ app_server <- function(input, output, session) {
     res$FEATURE_ID[input$featureTable_rows_selected]
   })
   
+  output$interactive_spectrum <- renderPlotly({
+    req(nrow(analysis_results$results) > 0)
+    req(selected_feature_id())
+    plottingSpectra(analysis_results$spectra, selected_feature_id(), all_cards_data())
+    
+  })
+  
   output$spectrum_plot <- renderPlot({
     req(nrow(analysis_results$results) > 0)
     req(selected_feature_id())
     par(mfrow = c(2, 1))
     plot_spectrum_by_id(analysis_results$spectra, noise = FALSE, selected_feature_id(), id_column = "FEATURE_ID")
-    plot_spectrum_by_id(analysis_results$spectra, noise = TRUE, selected_feature_id(), id_column = "FEATURE_ID")
-    
+    #plot_spectrum_by_id(analysis_results$spectra, noise = TRUE, selected_feature_id(), id_column = "FEATURE_ID")
   })
   
   #run Analysis with logging
@@ -716,10 +732,8 @@ app_server <- function(input, output, session) {
                   selected = "creation", width = "140px"),
       numericInput("tolerance_ppm", "Tolerance (ppm)", value = basicFilterValues$tolerance_ppm, width = "140px"),
       numericInput("minimum_dalton", "Minimum Dalton", value = basicFilterValues$minimum_dalton, width = "140px")
-  ),
-  hr(),
-  div(id="cards_container", class = "cards-container"))
-})
+  ))
+  })
   
   output$results_ui <- renderUI({ 
     tagList(
@@ -799,7 +813,8 @@ app_server <- function(input, output, session) {
       spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]
 
       tagList(
-        plotOutput("spectrum_plot"),
+        #plotOutput("spectrum_plot"),
+        plotlyOutput("interactive_spectrum"),
         div(class = "detail-row",
             div(class = "detail-label", "Feature ID"),
             div(class = "detail-value", as.character(spectrum_info$FEATURE_ID))

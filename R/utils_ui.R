@@ -10,7 +10,7 @@ create_topbar_InProject <- function(){
   div(class = "top-bar",
       #h2(class = "app-title","MS2Search - Analysis"),
       uiOutput("state_screen"),
-      div(class= "top-bar-nav",
+      div(class= "top-bar-space top-bar-nav",
         actionButton("back_to_welcome", "Setup",
                      icon = icon("house"), class = "btn-default"),
         actionButton("back_to_analysis", "Analysis",
@@ -20,8 +20,15 @@ create_topbar_InProject <- function(){
           actionButton("back_to_results", "Results",
                      icon = icon("square-poll-horizontal"), class = "btn-default"))
       ),
-      actionButton("save_project", "Save Project",
-                   icon = icon("folder-open"), class = "btn-default")
+      div(class= "top-bar-space",
+        actionButton("save_project", "Save Project",
+                     icon = icon("folder-open"), class = "btn-default"),
+        conditionalPanel(
+          condition = "output.has_results",
+          downloadButton("export_results", "Export Results",
+                       icon = icon("file-export"), class = "btn-default"))
+      )
+      
   )
 }
 

@@ -4,7 +4,7 @@
 \alias{get_spectrum_by_id}
 \title{Get a single spectrum from a Spectra object by feature ID}
 \usage{
-get_spectrum_by_id(spectra, feature_id, id_column = "FeatureID", noise)
+get_spectrum_by_id(spectra, feature_id, id_column = "FeatureID")
 }
 \arguments{
 \item{spectra}{A `Spectra` object containing multiple spectra.}

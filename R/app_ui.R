@@ -37,7 +37,9 @@ app_ui <- function(request) {
 		        shinyjs::hidden(
 		          div(id = "cards_section",
 		              uiOutput("rule_coordination"),
-		              uiOutput("cards_ui", class = "cards-container")
+		              uiOutput("cards_ui", class = "cards-container"),
+		              div(id="cards_container", class = "cards-container")
+		          
 		        ),
 		        shinyjs::hidden(
 		          div(id = "analysis_footer",

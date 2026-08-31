@@ -56,7 +56,7 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
               ),
  
               checkboxInput(ns("filter_noise"), "Remove noise from MS2 spectrum before search", value = card$filter_noise),
-              div(style = "text-align: center;", createPriorityRadioButtons(ns("priority"), "basic"))
+              div(style = "text-align: center;", createPriorityRadioButtons(ns("rule_priority"), card$rule_priority))
               
           )
       )
@@ -81,7 +81,7 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
       filter_noise = initial$filter_noise, 
       sequential = initial$sequential,
       next_card_id = initial$next_card_id,
-      priority = initial$priority,
+      rule_priority = initial$rule_priority,
       rule_mz_min = initial$rule_mz_min,
       rule_mz_max = initial$rule_mz_max
     )
@@ -176,7 +176,7 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
     
     
     observeEvent(input$label, rule_state$label <- input$label, ignoreInit = TRUE)
-    observeEvent(input$priority, rule_state$priority <- input$priority, ignoreInit = TRUE)
+    observeEvent(input$rule_priority, rule_state$rule_priority <- input$rule_priority, ignoreInit = TRUE)
     observeEvent(input$precursor, rule_state$just_after_precursor <- isTRUE(input$precursor), ignoreInit = TRUE)
     observeEvent(input$filter_noise, rule_state$filter_noise <- isTRUE(input$filter_noise), ignoreInit = TRUE)
     observeEvent(input$sequential, rule_state$sequential <- isTRUE(input$sequential), ignoreInit = TRUE)
@@ -244,7 +244,7 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
            filter_noise = rule_state$filter_noise, 
            sequential = rule_state$sequential, 
            next_card_id = rule_state$next_card_id,
-           priority = rule_state$priority,
+           rule_priority = rule_state$rule_priority,
            rule_mz_min = rule_state$rule_mz_min,
            rule_mz_max = rule_state$rule_mz_max)
     })
@@ -342,7 +342,7 @@ empty_card <- function(id) {
     max_repeat = 1,
     just_after_precursor = FALSE,
     sequential = FALSE,
-    priority = "basic",
+    rule_priority = "basic",
     rule_mz_min = NULL,
     rule_mz_max = NULL,
     filter_noise = TRUE

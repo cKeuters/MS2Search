@@ -12,12 +12,15 @@
 }
 
 .top-bar-nav {
-    display: flex;
-    gap: 10px;
     position: absolute;
     left: 50%;
     transform: translateX(-50%);
     white-space: nowrap;
+}
+
+.top-bar-space {
+    display: flex;
+    gap: 10px
 }
 
 .app-title { margin: 0; font-weight: 300; color: #2c3e50; white-space: nowrap; }
@@ -994,4 +997,81 @@ table.dataTable tbody tr.selected {
 /* verhindert zusätzlich, dass der Chip sich im flex-wrap-Elternelement streckt */
 .mod-chip {
   flex: 0 0 auto;
+}
+
+
+
+/* Validation precursor */
+
+.precursor-validation {
+  margin: 8px 0;
+}
+
+.validation-summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  color: #4a5568;
+  padding: 6px 10px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+  list-style: none;
+}
+
+.validation-summary::-webkit-details-marker {
+  display: none;
+}
+
+.validation-summary:hover {
+  background: #f1f5f9;
+}
+
+.formula-box {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-family: "Fira Code", "Courier New", monospace;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.formula-label {
+  color: #64748b;
+  margin-right: 4px;
+}
+
+.formula-term {
+  background: #eef2ff;
+  color: #4338ca;
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+.formula-op {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.adjustment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.adjustment-icon {
+  color: #94a3b8;
+}
+
+.adjustment-hint {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-top: 4px;
+  margin-bottom: 0;
 }

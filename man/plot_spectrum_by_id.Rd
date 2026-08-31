@@ -4,7 +4,7 @@
 \alias{plot_spectrum_by_id}
 \title{Plot a spectrum selected by feature ID}
 \usage{
-plot_spectrum_by_id(spectra, noise, feature_id, id_column = "FeatureID", ...)
+plot_spectrum_by_id(spectra, feature_id, id_column = "FeatureID", ...)
 }
 \arguments{
 \item{spectra}{A `Spectra` object.}

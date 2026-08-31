@@ -10,8 +10,8 @@
 #' @noRd
 load_spectra <- function(ms2_file, add_log){
   print(ms2_file)
-  #if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
-  if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
+  if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
+  #if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
   
   sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
   sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
@@ -85,7 +85,6 @@ run_analysis <- function(settings_list, sp, add_log){
     }
     
     sp_cleaned <- cleaning_ref(sp)
-   
     
   #-----------------------------------------------------------------------------
   # Rule filters
@@ -93,14 +92,14 @@ run_analysis <- function(settings_list, sp, add_log){
 
   for(rule in settings_list$specific_filters){
     
-    if(rule$filter_noise)  peaksData <- peaksData(sp)
-    else  peaksData <- peaksData(sp_cleaned)
+    if(!rule$filter_noise)  {peaks_data <- peaksData(sp)
+    }else  peaks_data <- peaksData(sp_cleaned)
     
     masses <- vapply(rule$entries, function(e) {
       resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
     }, numeric(1))
     masses <- abs(as.numeric(masses[!is.na(masses)]))
-    
+
     if(!rule$is_mzPeak){
       
       #searching for multiple neutral losses
@@ -108,7 +107,7 @@ run_analysis <- function(settings_list, sp, add_log){
         rule$min_repeat = 1
         rule$max_repeat = 1
       }
-      ladders <- lapply(peaksData, find_ladder,
+      ladders <- lapply(peaks_data, find_ladder,
                         values = masses, 
                         losses_min = rule$min_repeat, 
                         losses_max = rule$max_repeat, 
@@ -116,25 +115,28 @@ run_analysis <- function(settings_list, sp, add_log){
                         rule_max_mz = rule$rule_mz_max, 
                         tol_ppm = settings_list$basicFilters$tolerance_ppm, 
                         tol_mz = settings_list$basicFilters$minimum_dalton)
-      
+
       retained_vector <- lengths(ladders) > 0
       add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
       results[rule$label] <- retained_vector
-      if(rule$priority == "required"){
+      if(rule$rule_priority == "required"){
         results <- results[retained_vector,]
         sp <- sp[retained_vector,]
+        sp_cleaned <- sp_cleaned[retained_vector,]
+        
       }
       
     }else{
       #Searching for specific mz values in the ms2 data
-      
-      retained_vector <- unlist(lapply(peaks, findMZpeak,
+      retained_vector <- unlist(lapply(peaks_data, findMZpeak,
                 values = masses, tol_ppm = settings_list$basicFilters$tolerance_ppm, tol_mz = settings_list$basicFilters$minimum_dalton))
       add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
       results[rule$label] <- retained_vector
-      if(rule$priority == "required"){
+      if(rule$rule_priority == "required"){
+        
         results <- results[retained_vector,]
         sp <- sp[retained_vector,]
+        sp_cleaned <- sp_cleaned[retained_vector,]
       }
 
     }
@@ -195,19 +197,20 @@ getRT <- function(sp){
 #' @noRd
 find_ladder <- function(peaks, values, losses_min, losses_max, tol_ppm, tol_mz, rule_min_mz, rule_max_mz, just_after_precursor = FALSE, noise_filter = TRUE) {
   
-  #if(noise_filter)peaks <- compute_Noise(peaks)
   mz <- peaks[,"mz"]
 
-  if(!is.null(rule_min_mz))mz <- mz[mz > rule_min_mz]
-  if(!is.null(rule_max_mz))mz <- mz[mz < rule_max_mz]
+  if(!is.na(rule_min_mz) && !is.null(rule_min_mz))mz <- mz[mz > rule_min_mz]
+  if(!is.na(rule_max_mz) && !is.null(rule_max_mz))mz <- mz[mz < rule_max_mz]
+  mz <- mz[!is.na(mz)]
   
-
-  values <- as.numeric(values)
+  values <- sort(as.numeric(values))
   n_peaks <- length(mz)
+  
   if (n_peaks < losses_min) return(numeric(0))
   
   max_check <- losses_max + 1L
   live <- data.frame(anchor = seq_len(n_peaks), offset = 0)
+  
   if(just_after_precursor) live <- live[live$anchor == n_peaks,]
   run_length <- integer(n_peaks)
   
@@ -218,8 +221,8 @@ find_ladder <- function(peaks, values, losses_min, losses_max, tol_ppm, tol_mz, 
     cand <- merge(live, data.frame(delta = values))
     cand$offset_new <- cand$offset + cand$delta
     cand$target <- mz[cand$anchor] - cand$offset_new
-
     cand <- cand[order(cand$target), ]
+
     idx <- closest(cand$target, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
     
     cand <- cand[!is.na(idx), ]
@@ -232,38 +235,16 @@ find_ladder <- function(peaks, values, losses_min, losses_max, tol_ppm, tol_mz, 
   }
   
   hit <- run_length >= losses_min & run_length <= losses_max
- 
+
   mz[hit]
 }
 
 findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
   mz <- peaks[,"mz"]
-  values <- as.numeric(values)
+  values <- sort(as.numeric(values))
+
   idx <- closest(values, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
   !is.na(any(idx))
-}
-
-compute_Noise <- function(peaks){
-  peaks_df <- as.data.frame(peaks)
-  groups <- split(
-    peaks_df,
-    cut(
-      peaks_df$mz,
-      breaks = seq(0, ceiling(max(peaks_df$mz)/100) * 100, 100),
-      include.lowest = TRUE
-    )
-  )
-  
-  filtered_groups <- lapply(groups, function(set) {
-    med <- median(set$intensity)
-    noise <- median(abs(set$intensity - med))
-    
-    set$snr <- set$intensity / noise
-    })
-  
-  peaks_df$snr <- do.call(c, filtered_groups)
-  
-  peaks[!peaks_df$snr > 3, , drop = FALSE]
 }
 
 #' Noise filtering 
@@ -276,7 +257,17 @@ compute_Noise <- function(peaks){
 #' @import tidyverse
 #' @noRd
 cleaning_ref<- function(ms2){
-
+  # sps_filtered <- filterIntensity(
+  #   ms2,
+  #   intensity = function(x) x > 100  # 1 % vom Basispeak
+  # )
+  sps_filtered <- addProcessing(ms2, function(x, spectrumMsLevel) {
+    n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "MAD")
+    x[x[, "intensity"] > 3 * n, , drop = FALSE]
+  })
+  return(sps_filtered)
+  
+  
   ms2_tb <- tibble::tibble(
     id = ms2$FEATURE_ID,
     dataOrigin = ms2$dataOrigin,

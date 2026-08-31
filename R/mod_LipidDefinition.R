@@ -17,11 +17,49 @@ mod_LipidDefinition_ui <- function(id) {
         class = "headgroup-row",
         div(
           class = "headgroup-box",
-          textInput(ns("headgroup"), label = "Head Group", placeholder = "z.B. C3H8O3", width = "160px")
+          textInput(ns("headgroup"), label = "Backbone", placeholder = "z.B. C3H8O3", width = "160px")
         ),
         actionButton(ns("add_chain"), "+ Chain", class = "btn-add-chain")
       ),
-      div(id = ns("chains_container"), class = "chains-container")
+      div(id = ns("chains_container"), class = "chains-container"),
+      # Validation
+      tags$div(
+        class = "precursor-validation",
+        tags$details(
+          tags$summary(
+            class = "validation-summary",
+            icon("flask"), "Validation: Precursor m/z"
+          ),
+          tags$div(
+            class = "formula-box",
+            tags$span(class = "formula-label", "precursor m/z ="),
+            tags$span(class = "formula-term", "backbone"),
+            tags$span(class = "formula-op", "+"),
+            tags$span(
+              class = "formula-term",
+              "C", tags$sub("carbonsInAllChains")
+            ),
+            tags$span(class = "formula-op", "+"),
+            tags$span(
+              class = "formula-term",
+              "H", tags$sub(
+                HTML("carbonsInAllChains&times;2 &minus; DBEinAllChains&times;2 &minus; n_modifications")
+              )
+            ),
+            tags$span(class = "formula-op", "+"),
+            tags$span(class = "formula-term", "modifications"),
+            tags$span(class = "formula-op", "+"),
+            tags$div(
+              class = "adjustment-row",
+              icon("pen", class = "adjustment-icon"),
+              textInput(
+                ns("chain_validation"), NULL,
+                placeholder = "individual adjustment"
+              )
+            )
+          )
+        )
+      )
     )
   )
   

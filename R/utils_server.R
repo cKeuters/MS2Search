@@ -118,9 +118,9 @@ load_project <- function(zip_path) {
 #'   want to reuse it, e.g. for peak annotation on top of the plot).
 #'
 #' @importFrom Spectra plotSpectra
-plot_spectrum_by_id <- function(spectra, noise, feature_id, id_column = "FeatureID", ...) {
+plot_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", ...) {
   
-  spec_subset <- get_spectrum_by_id(spectra, feature_id, id_column, noise)
+  spec_subset <- get_spectrum_by_id(spectra, feature_id, id_column)
   
   Spectra::plotSpectra(
     spec_subset,
@@ -144,7 +144,7 @@ plot_spectrum_by_id <- function(spectra, noise, feature_id, id_column = "Feature
 #'   Throws an informative error if no match is found.
 #'
 #' @importFrom Spectra spectraData
-get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", noise) {
+get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
   
   spectraData <- Spectra::spectraData(spectra)
   
@@ -160,17 +160,7 @@ get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", noi
   if (length(match_idx) == 0) {
     stop(sprintf("No spectrum found for %s = '%s'", id_column, feature_id))
   }
-  
   subsp <- spectra[match_idx]
-  
-  # if(noise){
-  #   peaks <- unlist(peaksData(subsp))
-  #   peak_noise_vector <- compute_Noise(peaks)
-  #   subsp <- addProcessing(subsp, compute_Noise)
-  # }
-  # print(unlist(peaksData(subsp)))
-  if(noise)subsp <- cleaning_ref(subsp)
-  subsp
   
 }
 
@@ -329,9 +319,112 @@ create_brkrrba_file <- function(settings_list){
 }
 
 
+#-------------------------------------------------------------------------------
+# Plotting with plotly
+#-------------------------------------------------------------------------------
+
+#' @import plotly
+#' @noRd
+plottingSpectra <- function(sp, feature_id, rules){
+  spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID") 
+  mz <- unlist(spectrum$mz)
+  intensities <- unlist(spectrum$intensity)
+  filtered_spectrum <- cleaning_ref(spectrum)
+  mz_filtered <- unlist(filtered_spectrum$mz)
+
+  filter_results <- useRulesOnSpectrum(spectrum, rules)
+  filter_results[["Intensity Filter"]] <- setdiff(mz, mz_filtered)
+
+  filter_priorities <- unlist(lapply(rules, function(x){x$priority}))
+  if(!is.null(filter_results[["Intensity Filter"]]))filter_priorities <- c(filter_priorities, "low")
+  
+  category <- resolve_filter_category(mz = mz,
+                                      filter_results = filter_results,
+                                      filter_priority = filter_priorities,
+                                      tol = 1e-4)
+  levs <- sort(unique(unlist(lapply(rules, function(x){x$label}))))
+  colors <- setNames(rainbow(length(levs)), levs)
+  colors["none"] <- "#404040"
+  colors["Intensity Filter"] <- "#D3D3D3"
+  
+
+  fig <- plot_ly(x = unlist(spectrum$mz), 
+                 y = unlist(spectrum$intensity), 
+                 type = "bar", 
+                 text = unlist(spectrum$mz),
+                 color = category,
+                 colors = colors
+                 )
+  
+  fig <- fig %>% layout(title = paste("Spectum", feature_id),
+                        xaxis = list(title = "m/z"),
+                        yaxis = list(title = "intensity"))
+  fig
+      }
 
 
+useRulesOnSpectrum <- function(spectrum, rules){
+  
+  filter_results <- list()
+  denoised_spectrum <- cleaning_ref(spectrum)
+  for(rule in rules){
+    
+    if(!rule$filter_noise) peaks_data <- peaksData(spectrum)[[1]]
+    else peaks_data <- peaksData(denoised_spectrum)[[1]]
+        
+    masses <- vapply(rule$entries, function(e) {
+      resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
+    }, numeric(1))
+    masses <- abs(as.numeric(masses[!is.na(masses)]))
+    if(!rule$is_mzPeak){
+      
+      #searching for one or multiple neutral losses
+      if(!rule$sequential){
+        rule$min_repeat = 1
+        rule$max_repeat = 1
+      }
+      mz_values <- find_ladder(peaks_data,
+                             values = masses, 
+                             losses_min = rule$min_repeat, 
+                             losses_max = rule$max_repeat, 
+                             rule_min_mz = rule$rule_mz_min, 
+                             rule_max_mz = rule$rule_mz_max, 
+                             tol_ppm = settings_list$basicFilters$tolerance_ppm, 
+                             tol_mz = settings_list$basicFilters$minimum_dalton)
 
+    }else{
+      #Searching for specific mz values in the ms2 data
+      
+      retained_value <- findMZpeak(peaksData(spectrum)[[1]],
+                                    values = masses, 
+                                    tol_ppm = settings_list$basicFilters$tolerance_ppm, 
+                                    tol_mz = settings_list$basicFilters$minimum_dalton)
+      if(retained_value == TRUE) mz_values <- masses
+      else mz_values <- NULL
+      
+    }
+    filter_results[[rule$label]] <- mz_values
+  }
+  filter_results
+}
 
+resolve_filter_category <- function(mz, filter_results, filter_priority, tol = 1e-4) {
+  priority_levels = c( "low","basic", "important", "required")
+  priority_tuples <- data.frame(
+    name = names(filter_results),
+    priority = filter_priority
+  )
+  
+  sapply(mz, function(m) {
+    hits <- names(filter_results)[
+      vapply(filter_results, function(vals) any(abs(vals - m) < tol), logical(1))
+    ]
+    if (length(hits) == 0) return("none")
+    
+    priority_tuples <- priority_tuples[priority_tuples$name %in% hits,]
+    priority_tuples$name[
+      which.max(match(priority_tuples$priority, priority_levels))
+    ]
 
-
+  })
+}
