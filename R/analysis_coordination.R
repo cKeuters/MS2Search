@@ -9,9 +9,10 @@
 #' @import MsBackendMgf
 #' @noRd
 load_spectra <- function(ms2_file, add_log){
+  
+  #if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
+  if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
   print(ms2_file)
-  if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
-  #if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
   
   sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
   sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
@@ -142,13 +143,56 @@ run_analysis <- function(settings_list, sp, add_log){
     }
 
   }
+    
+    #-----------------------------------------------------------------------------
+    # Chain filters
+    #-----------------------------------------------------------------------------
+    peaks_data <- peaksData(sp_cleaned)
+    chain_id <- 1
+    for(ld in settings_list$lipid_definition){
+      masses <- calc_lipid_chain_masses(ld)$mass
+      
+      retained_vector <- unlist(lapply(peaks_data, findMZpeak,
+                                       values = masses, 
+                                       tol_ppm = settings_list$basicFilters$tolerance_ppm, 
+                                       tol_mz = settings_list$basicFilters$minimum_dalton))
+      add_log(paste0("Spectra after Chain ",chain_id,": ", sum(retained_vector)))
+      results[paste("chain",chain_id)] <- retained_vector
+      
+      chain_id <- chain_id + 1
+      if(ld$priority == "required"){
+        
+        results <- results[retained_vector,]
+        sp <- sp[retained_vector,]
+        sp_cleaned <- sp_cleaned[retained_vector,]
+      }
+      
+    }
   
   #------------------------- creating dataframe  ----------------------
-
-    results$score <- rowSums(
-      as.matrix(results[, 2:ncol(results)]),
-      na.rm = TRUE
-    ) / (ncol(results) - 1)
+    
+    priority_weights <- c(
+      basic = 1,
+      important = 2,
+      required = 0
+    )
+    
+    priorities <- c(
+      priority_weights[settings_list$basicFilters$mz_priority],
+      priority_weights[settings_list$basicFilters$rt_priority],
+      priority_weights[settings_list$basicFilters$n_peaks_priority],
+      sapply(settings_list$specific_filters, \(x) priority_weights[x$rule_priority]),
+      sapply(settings_list$lipid_definition, \(x) priority_weights[x$priority])
+    )
+    priorities <- unname(sapply(priorities, function(x) if (length(x) == 0) 0 else x))
+    print(priorities)
+    
+    matches <- as.matrix(results[, 2:ncol(results)])
+    matches <- apply(matches,2, function(x) as.integer(x))
+    
+    print(head(matches))
+    print(sum(priorities))
+    results$score <- rowSums((sweep(matches, MARGIN=2,priorities, `*`))) / sum(priorities)
     
     as.data.frame(results)
 }
@@ -326,3 +370,63 @@ cleaning_ref<- function(ms2){
     Spectra()
   return(ms2_cl)
 }
+
+#' Chains to masses 
+#'
+#' @description calculates the masses from the lipid definition
+#'
+#' @return returns the possible masses
+#'
+#' @import MetaboCoreUtils
+#' @noRd
+calc_lipid_chain_masses <- function(ld){
+  
+  optional_mods <- unlist(
+    lapply(ld$modifications, \(x) if (x$optional) x$formula),
+    use.names = FALSE
+  )
+  required_mods <- unlist(
+    lapply(ld$modifications, \(x) if (!x$optional) x$formula),
+    use.names = FALSE
+  )
+  mods_combinations <- unlist(
+    lapply(
+      0:length(optional_mods),
+      function(k) {
+        combn(optional_mods, k, simplify = FALSE)
+      }
+    ),
+    recursive = FALSE
+  )
+  if(length(mods_combinations) == 0) mods_combinations <- ""
+  combos <- expand.grid(
+    C  = ld$C_min:ld$C_max,
+    DB = ld$DB_min:ld$DB_max,
+    optional_mod = mods_combinations)
+  
+  
+  mod_H_correction <- length(required_mods)
+  
+  combos$H <- 2 * combos$C - 2 * combos$DB - mod_H_correction
+  
+
+  combos$formula <- mapply(
+    function(C, H, optional_mod) {
+      paste0(
+        "C", C,
+        "H", H - length(optional_mod) +1,
+        paste0(optional_mod, collapse = ""),
+        paste0(required_mods, collapse = "")
+      )
+    },
+    combos$C,
+    combos$H,
+    combos$optional_mod
+  )
+    
+  combos$mass <- calculateMass(combos$formula)
+  
+  if(is.null(optional_mods))combos[c("formula", "mass")]
+  else combos[c("formula", "optional_mod", "mass")]
+}
+

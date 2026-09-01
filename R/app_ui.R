@@ -6,6 +6,7 @@
 #' @import shinyFiles
 #' @import shinyWidgets
 #' @import splines
+#' @import bslib
 #' @noRd
 app_ui <- function(request) {
 	tagList(

@@ -23,11 +23,9 @@ create_topbar_InProject <- function(){
       div(class= "top-bar-space",
         actionButton("save_project", "Save Project",
                      icon = icon("folder-open"), class = "btn-default"),
-        conditionalPanel(
-          condition = "output.has_results",
           downloadButton("export_results", "Export Results",
                        icon = icon("file-export"), class = "btn-default"))
-      )
+      
       
   )
 }
@@ -128,4 +126,3 @@ createInfoI <- function(id, info) {
     )))
   )
 }
-

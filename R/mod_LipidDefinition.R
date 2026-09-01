@@ -138,7 +138,7 @@ mod_LipidDefinition_server <- function(id, load_trigger){
 }
 
 
-#' UI-Block fuer eine einzelne Kette
+#' UI-Block for one chain
 #' @noRd
 chain_block_ui <- function(id, init_chain) {
   ns <- NS(id)
@@ -202,8 +202,8 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     )
     mod_ids <- reactiveVal(1)
     
-    chain_mz_range <- reactive({
-      calc_chain_mz_range(reactiveValuesToList(chain_state))
+    chain_mz_values <- reactive({
+      calc_lipid_chain_masses(reactiveValuesToList(chain_state))
     })
     
     output$chain_priority <- renderUI({
@@ -309,43 +309,6 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
       mod_ids(length(init_mods))
     })
     
-
-
-    
-    # add_mod_to_ui <- function(init_mod){
-    #   n_mods <- mod_ids()
-    #   cat(paste("mods:",n_mods,"\n"))
-    #   mid <- paste0("mods_", n_mods) 
-    #   position <- if (n_mods %% 2 == 0) "above" else "below"
-    #   target <- paste0("mods_", position)
-    #   
-    #   insertUI(
-    #     selector = paste0("#",ns(target)),
-    #     where = "beforeEnd",
-    #     ui = mod_chip_ui(ns, mid, init_mod),
-    #     immediate = TRUE
-    #   )
-    #   chain_state$modifications[[mid]] <- list(
-    #     formula = "",
-    #     optional = TRUE
-    #   )
-    #   
-    #   observeEvent(input[[paste0(mid, "_formula")]],{
-    #     chain_state$modifications[[mid]]$formula <- input[[paste0(mid, "_formula")]]
-    #   })
-    #   observeEvent(input[[paste0(mid, "_mod_optional")]],{
-    #     chain_state$modifications[[mid]]$optional <- input[[paste0(mid, "_mod_optional")]]
-    #   })
-    #   observeEvent(input[[paste0(mid, "_remove")]],{
-    #     chain_state$modifications[[mid]] <- NULL
-    #     removeUI(selector = paste0("#", ns(paste0("mod_chip_", mid))))
-    #     
-    #   })
-    #   print("hi")
-    #   mod_ids(mod_ids()+1)
-    # }
-    # isolate({ for (mod in init_chain$modifications) add_mod_to_ui(mod) })
-    # 
     
     output$chain_svg <- renderUI({
       req(chain_state$C_min, chain_state$C_max)
@@ -359,19 +322,23 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
       )
     })
     
-    
+    infoModalButtonServer("chain_mz_info", df = chain_mz_values)
     #' box with min and max mz values of chain
     #' @noRd
     output$mz_box_ui <- renderUI({
-      range <- chain_mz_range()
-      req(range)
-      div(
-        class = "mz-box",
-        tags$span(class = "mz-label", "m/z"),
-        tags$span(class = "mz-value", sprintf("%.4f", range$min)),
-        tags$span(class = "mz-sep", "\u2013"),
-        tags$span(class = "mz-value", sprintf("%.4f", range$max))
-      )}
+      values <- chain_mz_values()
+      req(values)
+      div(class = "mz_box_distance",
+        div(
+          class = "mz-box",
+          tags$span(class = "mz-label", "m/z"),
+          tags$span(class = "mz-value", sprintf("%.4f", min(values$mass))),
+          tags$span(class = "mz-sep", "\u2013"),
+          tags$span(class = "mz-value", sprintf("%.4f", max(values$mass)))
+        ),
+        infoModalButtonUI(ns("chain_mz_info"))
+      )
+        }
     ) 
     
     reactive({
@@ -408,6 +375,36 @@ mod_chip_server <- function(id) {
         formula = input$formula,
         optional = input$optional
       )
+    })
+  })
+}
+
+# UI of table pop-up
+infoModalButtonUI <- function(id) {
+  ns <- NS(id)
+  actionLink(
+    ns("show_info"),
+    label = NULL,
+    icon = icon("info-circle"),
+    class = "infoModalButtonUI-style"
+  )
+}
+
+# Server of table pop-up
+infoModalButtonServer <- function(id, df, title = NULL) {
+  moduleServer(id, function(input, output, session) {
+    observeEvent(input$show_info, {
+      showModal(modalDialog(
+        title = title,
+        DT::dataTableOutput(session$ns("info_table")),
+        easyClose = TRUE,
+        size = "l",
+        footer = modalButton("Close")
+      ))
+    })
+    
+    output$info_table <- DT::renderDataTable({
+      DT::datatable(df(),selection = 'none', options = list(dom = "t", paging = FALSE, scrollY = "400px"))
     })
   })
 }

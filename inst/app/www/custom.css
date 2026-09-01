@@ -1075,3 +1075,16 @@ table.dataTable tbody tr.selected {
   margin-top: 4px;
   margin-bottom: 0;
 }
+
+/*Tooltip Table */
+
+.infoModalButtonUI-style {
+  color: #8a6300;
+  cursor:pointer;
+}
+
+.mz_box_distance {
+  display: flex; 
+  gap : 10px;
+  align-items: center; 
+}

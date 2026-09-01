@@ -244,12 +244,15 @@ app_server <- function(input, output, session) {
 
   })
   
+  
   output$export_results <- downloadHandler(
     filename = function() {
-      paste("test", ".csv", sep = "")
+      paste0(state$project_name, "_results.csv")
     },
     content = function(file) {
-      write.csv(analysis_results$results(), file, row.names = FALSE)
+      
+      res <- analysis_results$results
+      write.csv(res, file, row.names = FALSE)
     }
   )
   
