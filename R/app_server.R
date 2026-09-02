@@ -107,7 +107,7 @@ app_server <- function(input, output, session) {
   log_text <- reactiveVal("")
   
   brkrrba_save <- reactiveVal("")
-  
+  head_group <- reactiveVal("")
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -234,7 +234,8 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
       cards   = all_cards_data(), 
-      lipid_definition = all_chain_data())
+      lipid_definition = all_chain_data(),
+      headgroup = head_group())
     if(length(settings_list$specific_filters) == 0 & length(settings_list$lipid_definition) == 0 ){
       brkrrba_save("Define Chains or Rules for a brkrrba-file")
     }else{
@@ -275,7 +276,8 @@ app_server <- function(input, output, session) {
       state = reactiveValuesToList(state),
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data(), lipid_definition = all_chain_data()),
+      cards   = all_cards_data(), lipid_definition = all_chain_data(),
+      headgroup = head_group()),
       analysis_results$results,
       analysis_results$spectra,
       paste0(state$out_dir, "/", state$project_name,".zip")
@@ -320,6 +322,8 @@ app_server <- function(input, output, session) {
     basicFilterValues$tolerance_ppm <- bf$tolerance_ppm
     basicFilterValues$minimum_dalton <- bf$minimum_dalton
     
+    head_group(settings_list$chain_info$headgroup)
+
     for(rule in settings_list$specific_filters){
       add_card_to_ui(rule)
     }
@@ -397,10 +401,11 @@ app_server <- function(input, output, session) {
   
   lipid_load_trigger <- reactiveVal(NULL)
   
-  lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1", lipid_load_trigger)
+  lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1", lipid_load_trigger, head_group)
   
   all_chain_data <- reactive({
     lipidDefinitionServer()
+
   })
   
   #-----------------------------------------------------------------------------
@@ -455,7 +460,8 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings      = reactiveValuesToList(ToolSettings),
       cards             = all_cards_data(),
-      lipid_definition   = all_chain_data()
+      lipid_definition   = all_chain_data(),
+      headgroup         = head_group()
     )
     
     log_file <- tempfile(paste0("analysis_log_", state$project_name), fileext = ".txt")

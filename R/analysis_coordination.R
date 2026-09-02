@@ -33,7 +33,7 @@ load_spectra <- function(ms2_file, add_log){
 #' @import SpectraQL
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
-  #settings_list <- load_project("path/data/Test-Settings.zip")$settings_list
+  #settings_list <- load_project("path/data/test_settings.zip")$settings_list
   
   #-----------------------------------------------------------------------------
   # Basic filters and checks
@@ -74,8 +74,11 @@ run_analysis <- function(settings_list, sp, add_log){
       sp <- sp[retained_vector,]
     }
     
+  sp_cleaned <- cleaning_ref(sp)
+  
+    
   #check peak count
-    all_PeakCount <- lengths(sp)
+    all_PeakCount <- lengths(sp_cleaned)
     retained_vector <- all_PeakCount >= settings_list$basicFilters$n_peaks_min & all_PeakCount <= settings_list$basicFilters$n_peaks_max
     retained_vector[is.na(retained_vector)] <- FALSE
     add_log(paste0("Spectra in peak-count-range (", settings_list$basicFilters$n_peaks_min,", ", settings_list$basicFilters$n_peaks_max, "): ", sum(retained_vector)))
@@ -83,9 +86,10 @@ run_analysis <- function(settings_list, sp, add_log){
     if(settings_list$basicFilters$n_peaks_priority == "required"){
       results <- results[retained_vector,]
       sp <- sp[retained_vector,]
+      sp_cleaned <- sp_cleaned[retained_vector,]
     }
     
-    sp_cleaned <- cleaning_ref(sp)
+    
     
   #-----------------------------------------------------------------------------
   # Rule filters
@@ -108,14 +112,24 @@ run_analysis <- function(settings_list, sp, add_log){
         rule$min_repeat = 1
         rule$max_repeat = 1
       }
-      ladders <- lapply(peaks_data, find_ladder,
-                        values = masses, 
-                        losses_min = rule$min_repeat, 
-                        losses_max = rule$max_repeat, 
-                        rule_min_mz = rule$rule_mz_min, 
-                        rule_max_mz = rule$rule_mz_max, 
-                        tol_ppm = settings_list$basicFilters$tolerance_ppm, 
-                        tol_mz = settings_list$basicFilters$minimum_dalton)
+      ladders <- Map(
+        function(peaks, precursor) {
+          find_ladder(
+            peaks = peaks,
+            precursor = precursor,
+            values = masses,
+            losses_min = rule$min_repeat,
+            losses_max = rule$max_repeat,
+            rule_min_mz = rule$rule_mz_min,
+            rule_max_mz = rule$rule_mz_max,
+            tol_ppm = settings_list$basicFilters$tolerance_ppm,
+            tol_mz = settings_list$basicFilters$minimum_dalton,
+            just_after_precursor = rule$just_after_precursor
+          )
+        },
+        peaks_data,
+        sp$precursorMz
+      )
 
       retained_vector <- lengths(ladders) > 0
       add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
@@ -185,8 +199,7 @@ run_analysis <- function(settings_list, sp, add_log){
       sapply(settings_list$lipid_definition, \(x) priority_weights[x$priority])
     )
     priorities <- unname(sapply(priorities, function(x) if (length(x) == 0) 0 else x))
-    print(priorities)
-    
+
     matches <- as.matrix(results[, 2:ncol(results)])
     matches <- apply(matches,2, function(x) as.integer(x))
     
@@ -239,13 +252,14 @@ getRT <- function(sp){
 #'
 #' @import MsCoreUtils
 #' @noRd
-find_ladder <- function(peaks, values, losses_min, losses_max, tol_ppm, tol_mz, rule_min_mz, rule_max_mz, just_after_precursor = FALSE, noise_filter = TRUE) {
+find_ladder <- function(peaks, precursor = NULL, values, losses_min, losses_max, tol_ppm, tol_mz, rule_min_mz, rule_max_mz, just_after_precursor = FALSE, noise_filter = TRUE) {
   
   mz <- peaks[,"mz"]
+  if(!is.null(precursor)) mz <- unique(c(mz, precursor))
 
   if(!is.na(rule_min_mz) && !is.null(rule_min_mz))mz <- mz[mz > rule_min_mz]
   if(!is.na(rule_max_mz) && !is.null(rule_max_mz))mz <- mz[mz < rule_max_mz]
-  mz <- mz[!is.na(mz)]
+  mz <- sort(mz[!is.na(mz)])
   
   values <- sort(as.numeric(values))
   n_peaks <- length(mz)
@@ -254,8 +268,8 @@ find_ladder <- function(peaks, values, losses_min, losses_max, tol_ppm, tol_mz, 
   
   max_check <- losses_max + 1L
   live <- data.frame(anchor = seq_len(n_peaks), offset = 0)
-  
-  if(just_after_precursor) live <- live[live$anchor == n_peaks,]
+
+  if(just_after_precursor) live <- live[live$anchor == which(mz == precursor),]
   run_length <- integer(n_peaks)
   
   for (lvl in seq_len(max_check)) {
@@ -301,74 +315,19 @@ findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
 #' @import tidyverse
 #' @noRd
 cleaning_ref<- function(ms2){
-  # sps_filtered <- filterIntensity(
-  #   ms2,
-  #   intensity = function(x) x > 100  # 1 % vom Basispeak
-  # )
   sps_filtered <- addProcessing(ms2, function(x, spectrumMsLevel) {
-    n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "MAD")
+    n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "SuperSmoother")
     x[x[, "intensity"] > 3 * n, , drop = FALSE]
   })
+  
+  # sps_filtered <- filterIntensity(
+  #   sps_filtered,
+  #   intensity = 20  
+  # )
+  # 
   return(sps_filtered)
   
-  
-  ms2_tb <- tibble::tibble(
-    id = ms2$FEATURE_ID,
-    dataOrigin = ms2$dataOrigin,
-    scanIndex = ms2$scanIndex,
-    polarity = ms2$polarity,
-    msLevel = ms2$msLevel,
-    precursorMz = ms2$precursorMz,
-    rtime = ms2$rtime,
-    #inchi = ms2$inchi,
-    precursorIntensity = ms2$precursorIntensity,
-    ms2_raw = as.list(peaksData(ms2, columns = c("mz", "intensity")))
-  ) %>%
-    dplyr::mutate(ms2_raw = purrr::map(ms2_raw, function(t) {
-      t %>%
-        as.data.frame() %>%
-        dplyr::mutate(mz = as.numeric(mz), intensity = as.numeric(intensity))
-    })) %>%
-    dplyr::mutate(ms2_RLM = purrr::map(ms2_raw, function(t){
-      t <- t %>%
-        dplyr::filter(intensity>0) %>%
-        dplyr::arrange(intensity) %>%
-        dplyr::mutate(order = seq(nrow(.)))
-      p75 <- t %>%
-        dplyr::pull(intensity) %>%
-        quantile(0.75)
-      u <- t %>%
-        dplyr::filter(intensity < p75)
-      if(nrow(u)>3){
-        mdl <- MASS::rlm(data = u, log10(intensity) ~ order)
-        t_filt<- t %>%
-          dplyr::mutate(pred = predict(mdl, t)) %>%
-          dplyr::mutate(res = abs(pred - log10(intensity))) %>%
-          dplyr::filter(res > sd(residuals(mdl))*3) %>%
-          dplyr::arrange(mz)
-        if (nrow(t_filt) > 0) {
-          t<- t_filt
-        } else {
-          t<- t %>% dplyr::arrange(mz)
-        }
-      } else {
-        return(t %>% dplyr::arrange(mz)) # Not enough points to model
-      }
-    }))
-  ms2_cl <- ms2_tb %>%
-    dplyr::mutate(precursorIntensity = precursorIntensity) %>%
-    dplyr::mutate(
-      mz = purrr::map(ms2_RLM, ~ .x$mz),
-      intensity = purrr::map(ms2_RLM, ~ .x$intensity)
-    ) %>%
-    dplyr::select(
-      id, dataOrigin, scanIndex, rtime, precursorMz, precursorIntensity,
-      polarity, mz, intensity
-    ) %>%
-    dplyr::filter(purrr::map_lgl(mz, ~ length(.x) > 0)) %>%
-    as.data.frame() %>%
-    Spectra()
-  return(ms2_cl)
+
 }
 
 #' Chains to masses 

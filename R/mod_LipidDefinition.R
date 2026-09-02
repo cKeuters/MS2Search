@@ -68,17 +68,27 @@ mod_LipidDefinition_ui <- function(id) {
 #' LipidDefinition Server Functions
 #'
 #' @noRd 
-mod_LipidDefinition_server <- function(id, load_trigger){
+mod_LipidDefinition_server <- function(id, load_trigger, head_group){
   moduleServer(id, function(input, output, session){
     ns <- session$ns
     
-    lipid_definition_state <- reactiveValues(
-      headgroup = NULL
-    )
-    
+
     chain_modules <- reactiveValues()
     chain_ids <- reactiveVal(character(0))
     next_chain_id <- reactiveVal(1)
+    
+    observeEvent(input$headgroup, {
+      head_group(input$headgroup)
+      })
+    
+    observeEvent(head_group(), {
+      updateTextInput(
+        session = session,
+        "headgroup",
+        value = head_group()
+      )
+    })
+    
     
     remove_chain <- function(cid) {
       cid <- as.character(cid)
@@ -132,6 +142,7 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       ids <- chain_ids()
       if (length(ids) == 0) return(list())
       lapply(ids, function(cid) chain_modules[[cid]]())
+
     })
     
   })

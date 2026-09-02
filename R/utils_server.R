@@ -10,7 +10,7 @@
 #' @return The return value, if any, from executing the utility.
 #'
 #' @noRd
-create_settings_list <- function(state, basicFilterValues, toolSettings, cards, lipid_definition){
+create_settings_list <- function(state, basicFilterValues, toolSettings, cards, lipid_definition, headgroup = NULL){
   
   settings_list <- list(
     project_info = list(
@@ -42,6 +42,9 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
       n_peaks_priority = basicFilterValues$n_peaks_priority,
       tolerance_ppm = basicFilterValues$tolerance_ppm,
       minimum_dalton = basicFilterValues$minimum_dalton
+    ),
+    chain_info = list(
+      headgroup = headgroup
     )
   )
   settings_list <- c(
@@ -348,13 +351,21 @@ plottingSpectra <- function(sp, feature_id, rules){
   colors["Intensity Filter"] <- "#D3D3D3"
   
 
-  fig <- plot_ly(x = unlist(spectrum$mz), 
-                 y = unlist(spectrum$intensity), 
-                 type = "bar", 
-                 text = unlist(spectrum$mz),
-                 color = category,
-                 colors = colors
-                 )
+  fig <- plot_ly(
+    x = unlist(spectrum$mz),
+    y = unlist(spectrum$intensity),
+    type = "bar",
+    text = unlist(spectrum$mz),
+    color = category,
+    colors = colors
+  ) %>%
+    add_segments(
+      x = spectrum$precursorMz, xend = spectrum$precursorMz,
+      y = 0, yend = max(unlist(spectrum$intensity)),
+      line = list(color = "red", dash = "dash", width = 1),
+      name = "Precursor",
+      inherit = FALSE
+      )
   
   fig <- fig %>% layout(title = paste("Spectum", feature_id),
                         xaxis = list(title = "m/z"),
@@ -383,14 +394,20 @@ useRulesOnSpectrum <- function(spectrum, rules){
         rule$min_repeat = 1
         rule$max_repeat = 1
       }
-      mz_values <- find_ladder(peaks_data,
-                             values = masses, 
-                             losses_min = rule$min_repeat, 
-                             losses_max = rule$max_repeat, 
-                             rule_min_mz = rule$rule_mz_min, 
-                             rule_max_mz = rule$rule_mz_max, 
-                             tol_ppm = settings_list$basicFilters$tolerance_ppm, 
-                             tol_mz = settings_list$basicFilters$minimum_dalton)
+      
+      mz_values <-find_ladder(
+            peaks = peaks_data,
+            precursor = sp$precursorMz[[1]],
+            values = masses,
+            losses_min = rule$min_repeat,
+            losses_max = rule$max_repeat,
+            rule_min_mz = rule$rule_mz_min,
+            rule_max_mz = rule$rule_mz_max,
+            tol_ppm = settings_list$basicFilters$tolerance_ppm,
+            tol_mz = settings_list$basicFilters$minimum_dalton,
+            just_after_precursor = rule$just_after_precursor
+          )
+      
 
     }else{
       #Searching for specific mz values in the ms2 data
