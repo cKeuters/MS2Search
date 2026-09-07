@@ -56,18 +56,16 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
   return(settings_list)
 }
 
-#' @import arrow
 #' @noRd
 setup_and_save_project <- function(settings_list, results, spectra, output_zip_path_file) {
-  
+  print(output_zip_path_file)
   tmp_dir <- tempfile("CeraSearch_save_dir")
   dir.create(tmp_dir)
   
   if(!is.null(spectra)){
     con <- gzfile(file.path(tmp_dir, "spectra.mgf.gz"), "w")
-    export(spectra, backend = MsBackendMgf(), file = con)
+    Spectra::export(spectra, backend = MsBackendMgf(), file = con)
     close(con)    
-    #write_parquet(spectra, file.path(tmp_dir, "spectra.parquet"))
   }
 
   jsonlite::write_json(settings_list, file.path(tmp_dir, "settings.json"), auto_unbox = TRUE)
@@ -172,7 +170,7 @@ get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
 # create brkrrba file
 #-------------------------------------------------------------------------------
 
-create_brkrrba_file <- function(settings_list){
+create_brkrrba_file <- function(settings_list, file_path){
   
   neutralPrecursorFormula <- "{backbone}+C{carbonsInAllChains}+H({carbonsInAllChains}*2-{DBEinAllChains}*2)"
   
@@ -312,7 +310,8 @@ create_brkrrba_file <- function(settings_list){
       )
   )
   
-  json_file <- paste0(settings_list$project_info$out_dir,"/lipid_def_",settings_list$project_info$project_name,".brkrrba")
+  #json_file <- paste0(settings_list$project_info$out_dir,"/lipid_def_",settings_list$project_info$project_name,".brkrrba")
+  json_file <- file_path
   write(toJSON(lipid_def, auto_unbox = TRUE, pretty = TRUE), json_file)
   
   txt <- readLines(json_file)
@@ -328,14 +327,15 @@ create_brkrrba_file <- function(settings_list){
 
 #' @import plotly
 #' @noRd
-plottingSpectra <- function(sp, feature_id, rules){
+plottingSpectra <- function(sp, feature_id, settings_list){
+  rules <- settings_list$specific_filters
   spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID") 
   mz <- unlist(spectrum$mz)
   intensities <- unlist(spectrum$intensity)
   filtered_spectrum <- cleaning_ref(spectrum)
   mz_filtered <- unlist(filtered_spectrum$mz)
 
-  filter_results <- useRulesOnSpectrum(spectrum, rules)
+  filter_results <- useRulesOnSpectrum(spectrum, settings_list)
   filter_results[["Intensity Filter"]] <- setdiff(mz, mz_filtered)
 
   filter_priorities <- unlist(lapply(rules, function(x){x$priority}))
@@ -374,8 +374,8 @@ plottingSpectra <- function(sp, feature_id, rules){
       }
 
 
-useRulesOnSpectrum <- function(spectrum, rules){
-  
+useRulesOnSpectrum <- function(spectrum, settings_list){
+  rules <- settings_list$specific_filters
   filter_results <- list()
   denoised_spectrum <- cleaning_ref(spectrum)
   for(rule in rules){
@@ -397,7 +397,7 @@ useRulesOnSpectrum <- function(spectrum, rules){
       
       mz_values <-find_ladder(
             peaks = peaks_data,
-            precursor = sp$precursorMz[[1]],
+            precursor = spectrum$precursorMz[[1]],
             values = masses,
             losses_min = rule$min_repeat,
             losses_max = rule$max_repeat,
@@ -411,7 +411,6 @@ useRulesOnSpectrum <- function(spectrum, rules){
 
     }else{
       #Searching for specific mz values in the ms2 data
-      
       retained_value <- findMZpeak(peaksData(spectrum)[[1]],
                                     values = masses, 
                                     tol_ppm = settings_list$basicFilters$tolerance_ppm, 
@@ -444,4 +443,26 @@ resolve_filter_category <- function(mz, filter_results, filter_priority, tol = 1
     ]
 
   })
+}
+
+#' @import ggplot2
+#' @noRd
+plotMS1 <- function(ms1_data, selectedFeature){
+  if(! selectedFeature %in% ms1_data$FEATURE_ID ) return()
+  
+  samples <- as.data.frame(ms1_data[, 12:ncol(ms1_data)])
+  rownames(samples) <- ms1_data$FEATURE_ID
+  
+  intensities <- samples[as.character(selectedFeature),]
+  
+  df <- data.frame(
+    Sample = colnames(intensities),
+    Intensity = as.numeric(intensities)
+  )
+  
+  ggplot(df, aes(x = Sample, y = Intensity)) +
+    geom_bar(stat = "identity",fill = "#337ab7")+
+    coord_flip()+
+    theme_minimal()
+  
 }

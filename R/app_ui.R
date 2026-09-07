@@ -15,24 +15,15 @@ app_ui <- function(request) {
 		shinyjs::useShinyjs(),
 		fluidPage(
 		  tags$link(rel = "stylesheet", type = "text/css", href = "custom.css"),
-		    
+		  create_topbar_InProject(),
 		    # --- Welcome Screen ---
 		    shinyjs::hidden(
-		      div(id = "welcome_screen", 
-		          div(class = "top-bar",
-		              h2(class = "app-title", "MS2Search - Setup"),
-		              div(id = "load_project_wrapper",
-		                  fileInput("load_project_file", label = NULL, accept = ".zip",
-		                            buttonLabel = tagList(icon("folder-open"), "Load Project"),
-		                            placeholder = "")
-		              )
-		          ),
+		      div(id = "welcome_screen",
 		          uiOutput("welcome_ui"))
 		    ),
 		    
 		    # --- Analysis Screen ---
 		  shinyjs::hidden(div(id = "analysis_screen",
-		        create_topbar_InProject(),
 		        uiOutput("analysis_ui"), 
 		        mod_LipidDefinition_ui("LipidDefinition_1"),
 		        shinyjs::hidden(
@@ -50,7 +41,7 @@ app_ui <- function(request) {
 		                  div(
 		                    style = "display:flex; justify-content:center; gap:10px;",
 		                    actionButton("run_analysis", "Run Analysis", class = "btn-primary btn-lg start-btn"),
-		                    div(actionButton("export_brkrrba", "Export brkrrba", class = "btn-primary btn-lg start-btn"),
+		                    div(downloadButton("export_brkrrba", "Export brkrrba", class = "btn-primary btn-lg start-btn"),
 		                        div(
 		                          style = "position:absolute; top:100%; left:0; width:100%; text-align:center;",
 		                          textOutput("saved_brkrrba")
@@ -66,7 +57,6 @@ app_ui <- function(request) {
 		  # --- Results Screen ---
 		  shinyjs::hidden(
 		    div(id = "results_screen", 
-		        create_topbar_InProject(),
 		        uiOutput("results_ui"),
 		        fluidRow(
 		          column(

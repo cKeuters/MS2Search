@@ -21,10 +21,10 @@ create_topbar_InProject <- function(){
                      icon = icon("square-poll-horizontal"), class = "btn-default"))
       ),
       div(class= "top-bar-space",
-        actionButton("save_project", "Save Project",
+        downloadButton("export_project", "Save Project",
                      icon = icon("folder-open"), class = "btn-default"),
-          downloadButton("export_results", "Export Results",
-                       icon = icon("file-export"), class = "btn-default"))
+        downloadButton("export_results", "Export Results",
+                      icon = icon("file-export"), class = "btn-default"))
       
       
   )

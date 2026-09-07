@@ -9,6 +9,7 @@
 #' @import zip
 #' @import future
 #' @import promises
+#' @import readr
 #' @noRd
 app_server <- function(input, output, session) {
   
@@ -109,6 +110,12 @@ app_server <- function(input, output, session) {
   brkrrba_save <- reactiveVal("")
   head_group <- reactiveVal("")
   
+  ms1_data <- reactive({
+    read_csv("../../data/example.csv")
+    #read_csv(input$ms1_file$datapath)
+  })
+  
+  
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
   #-----------------------------------------------------------------------------
@@ -204,7 +211,17 @@ app_server <- function(input, output, session) {
     }
   })
   output$MS2file_info <- renderText({
-    MS2file_info()
+    MS2file_name()
+  })
+  
+  MS2file_name <- reactive({
+    req(input$ms2_file)
+    
+    ext <- tools::file_ext(input$ms2_file$name)
+    switch(ext,
+           mgf = input$ms2_file$name,
+           validate("Invalid file; Please upload a .mgf file (other file types are following)")
+    )
   })
   
   # Button Start Analysis
@@ -228,24 +245,7 @@ app_server <- function(input, output, session) {
      state$screen <- "Results"
    })
   
-  observeEvent(input$export_brkrrba, {
-    settings_list <- create_settings_list(
-      state = reactiveValuesToList(state),
-      basicFilterValues = reactiveValuesToList(basicFilterValues),
-      toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data(), 
-      lipid_definition = all_chain_data(),
-      headgroup = head_group())
-    if(length(settings_list$specific_filters) == 0 & length(settings_list$lipid_definition) == 0 ){
-      brkrrba_save("Define Chains or Rules for a brkrrba-file")
-    }else{
-      create_brkrrba_file(settings_list)
-      brkrrba_save("brkrrba saved")
-    }
-
-  })
-  
-  
+ 
   output$export_results <- downloadHandler(
     filename = function() {
       paste0(state$project_name, "_results.csv")
@@ -254,6 +254,23 @@ app_server <- function(input, output, session) {
       
       res <- analysis_results$results
       write.csv(res, file, row.names = FALSE)
+    }
+  )
+  
+  output$export_brkrrba <- downloadHandler(
+    filename = function() {
+      paste0(state$project_name, ".brkrrba")
+    },
+    content = function(file) {
+      
+      settings_list <- create_settings_list(
+        state = reactiveValuesToList(state),
+        basicFilterValues = reactiveValuesToList(basicFilterValues),
+        toolSettings = reactiveValuesToList(ToolSettings),
+        cards   = all_cards_data(), 
+        lipid_definition = all_chain_data(),
+        headgroup = head_group())
+      create_brkrrba_file(settings_list, file)
     }
   )
   
@@ -271,19 +288,40 @@ app_server <- function(input, output, session) {
   shinyDirChoose(input, "load_project", roots = roots, session = session)
   
   # Save Project
-  observeEvent(input$save_project, {
-    setup_and_save_project(create_settings_list(
-      state = reactiveValuesToList(state),
-      basicFilterValues = reactiveValuesToList(basicFilterValues),
-      toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data(), lipid_definition = all_chain_data(),
-      headgroup = head_group()),
-      analysis_results$results,
-      analysis_results$spectra,
-      paste0(state$out_dir, "/", state$project_name,".zip")
-    )
-  })
+  # observeEvent(input$save_project, {
+  #   setup_and_save_project(create_settings_list(
+  #     state = reactiveValuesToList(state),
+  #     basicFilterValues = reactiveValuesToList(basicFilterValues),
+  #     toolSettings = reactiveValuesToList(ToolSettings),
+  #     cards   = all_cards_data(), lipid_definition = all_chain_data(),
+  #     headgroup = head_group()),
+  #     analysis_results$results,
+  #     analysis_results$spectra,
+  #     paste0(state$out_dir, "/", state$project_name,".zip")
+  #   )
+  #   showNotification(paste0("Project saved to ",  paste0(state$out_dir, "/", state$project_name,".zip")))
+  # })
   
+  output$export_project <- downloadHandler(
+    filename = function() {
+      paste0(state$project_name, ".zip")
+    },
+    content = function(file) {
+      
+      setup_and_save_project(create_settings_list(
+        state = reactiveValuesToList(state),
+        basicFilterValues = reactiveValuesToList(basicFilterValues),
+        toolSettings = reactiveValuesToList(ToolSettings),
+        cards   = all_cards_data(), lipid_definition = all_chain_data(),
+        headgroup = head_group()),
+        analysis_results$results,
+        analysis_results$spectra,
+        file)
+      
+    }
+  )
+  
+
   # Load Project
   observeEvent(input$load_project_file, {
     loaded_project <- load_project(input$load_project_file$datapath)
@@ -428,7 +466,14 @@ app_server <- function(input, output, session) {
   output$interactive_spectrum <- renderPlotly({
     req(nrow(analysis_results$results) > 0)
     req(selected_feature_id())
-    plottingSpectra(analysis_results$spectra, selected_feature_id(), all_cards_data())
+    settings_list <- create_settings_list(
+      state = reactiveValuesToList(state),
+      basicFilterValues = reactiveValuesToList(basicFilterValues),
+      toolSettings = reactiveValuesToList(ToolSettings),
+      cards   = all_cards_data(), 
+      lipid_definition = all_chain_data(),
+      headgroup = head_group())
+    plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list)
     
   })
   
@@ -581,7 +626,7 @@ app_server <- function(input, output, session) {
                    div(
                      style = "margin-left: auto; min-width: 150px;",
                      fileInput("ms2_file", "MS2 Data", placeholder = ifelse(is.null(MS2file_info()),"No file selected", MS2file_info()),
-                               accept = c(".mgf", ".msp", ".mzmine", ".mzHub")),
+                               accept = c(".mgf", ".msp", ".mzmine", ".mzTab")),
                      div(
                        style = "text-align: right;",
                        textOutput("MS2file_info", inline = TRUE)
@@ -590,21 +635,28 @@ app_server <- function(input, output, session) {
                    
                    selectInput("mode", "Ionization Mode",
                                choices = c("Positive" = "pos", "Negative" = "neg"),
-                               selected = state$mode),
-                   br(),
-                   tags$label(class = "control-label", "Output / Project Directory"),
-                   div(
-                     style = "display:flex; align-items:center;",
-                     shinyDirButton("out_dir", "Select output directory","Select output directory"),
-                     div(
-                       style = "margin-left:auto;",
-                       textOutput("out_dir_text", inline = TRUE)
-                     )
-                   )
+                               selected = state$mode)
+                   # br(),
+                   # tags$label(class = "control-label", "Output / Project Directory"),
+                   # div(
+                   #   style = "display:flex; align-items:center;",
+                   #   shinyDirButton("out_dir", "Select output directory","Select output directory"),
+                   #   div(
+                   #     style = "margin-left:auto;",
+                   #     textOutput("out_dir_text", inline = TRUE)
+                   #   )
+                   # )
                    
                ),
-               actionButton("start_analysis", "Start Analysis",
-                            class = "btn-primary btn-lg start-btn")
+               div(class = "flex-distance",
+                   actionButton("start_analysis", "Start Analysis",
+                                class = "process-btn"),
+                 div(id = "load_project_wrapper",
+                     fileInput("load_project_file", label = NULL, accept = ".zip",
+                               buttonLabel = tagList(icon("folder-open"), "Load Project"),
+                               placeholder = "")
+                 )
+               )
                
         ),
         
@@ -618,10 +670,9 @@ app_server <- function(input, output, session) {
                    fileInput("ms1_file", "MS1 Data (CSV)", accept = c(".csv")),
                    
                    fileInput("sirius_file", "Sirius Annotation",
-                             accept = c(".csv", ".tsv")),
+                             accept = c(".csv", ".tsv"))
                    
-                   fileInput("rules_file", "Mass Rules (json)", accept = c(".json"))
-                   
+
                )
         )
       )
@@ -810,6 +861,12 @@ app_server <- function(input, output, session) {
     
   }, server = TRUE)
   
+  output$ms1_plot <- renderPlot({
+    req(selected_feature_id())
+    req(ms1_data())
+    
+    plotMS1(ms1_data(), selected_feature_id())
+  })
   
   # feature details
     output$spectrumDetails <- renderUI({
@@ -844,8 +901,8 @@ app_server <- function(input, output, session) {
         div(class = "detail-row",
             div(class = "detail-label", "Polarity"),
             div(class = "detail-value", spectrum_info$POLARITY)
-        )
-        
+        ),
+        plotOutput("ms1_plot")
       )
     })
 
