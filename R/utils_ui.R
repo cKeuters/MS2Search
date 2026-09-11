@@ -1,8 +1,3 @@
-#' ui 
-#'
-#' @description A utils function
-#'
-#' @noRd
 
 #' @description Title and buttons for Saving Project and Return to Setup in the topbar
 #' @noRd

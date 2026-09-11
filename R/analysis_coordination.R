@@ -22,6 +22,60 @@ load_spectra <- function(ms2_file, add_log){
   sp
 }
 
+#' @import S4Vectors
+#' @import future.apply
+#' @import purrr
+#' @import dplyr
+#' @noRd
+createSpectradf <- function(operations, featureTableId){
+  res <- operations$retrieveFeatureTable(featureTableId = featureTableId)
+  featureTable <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
+  
+  res <- MetaboScapeAPI$listAllProjects()
+  projects <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
+
+  all_feature_tables <- projects$experiments |>
+    map_dfr(~ .x$featureTables |> map_dfr(identity))
+  
+  polarity <- all_feature_tables |>
+    filter(id == featureTableId) |>
+    pull(polarity)
+  if(polarity == "POSITIVE") pol <- 1 else pol <- 0
+
+  adducts <- vapply(
+    featureTable$featureIons,
+    function(x) paste(x$ionNotation, collapse = ";"),
+    character(1)
+  )
+
+  
+  spectra_df <- S4Vectors::DataFrame(
+    msLevel = as.integer(2),
+    rtime = as.numeric(featureTable$rtInSeconds), 
+    precursorMz = as.numeric(featureTable$mass),  
+    FEATURE_ID = as.character(rownames(featureTable)),
+    scanIndex  = as.integer(rownames(featureTable)),
+    metaboScape_ID = featureTable$id,
+    adducts = adducts,
+    polarity = as.integer(pol)
+  )
+
+  # plan(multisession, workers = 4)
+  msms <- future_lapply(featureTable$id, function(id){
+    res <- operations$retrieveFeatureMsMsSpectra(id)
+    fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
+  })
+  
+  spectra_df$mz <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$mz})
+  spectra_df$intensity <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$intensity})
+
+  
+  spectra_df
+}
+
+
+
+
 #' Analysis coordination 
 #'
 #' @description A function to run the analysis
@@ -34,22 +88,29 @@ load_spectra <- function(ms2_file, add_log){
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
   #settings_list <- load_project("path/data/test_settings.zip")$settings_list
-  
+
   #-----------------------------------------------------------------------------
   # Basic filters and checks
   #-----------------------------------------------------------------------------
-  results <- data.frame(FEATURE_ID = spectraData(sp)$FEATURE_ID)
 
   #check MS-Level 2 & empty spectra
+  keep <- !vapply(peaksData(sp), is.null, logical(1))
+  sp <- sp[keep]
   sp <- sp |>
     filterMsLevel(2) |>
     filterEmptySpectra() 
   add_log(paste("Non-empty spectra with MS-level 2: ", length(sp)))
-
+  
+  results <- data.frame(FEATURE_ID = spectraData(sp)$FEATURE_ID)
+  
   #check mode
   pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(sp))
-  if(settings_list$project_info$mode == "pos") mode <- c("POS", "POSITIVE", "positive") else mode <- c("NEG", "NEGATIVE", "negative")
-  if (length(pol_col) > 0) {sp <- sp[sp[[pol_col[1]]] %in% mode, ]}
+  if(settings_list$project_info$mode == "pos") mode <- c("POS", "POSITIVE", "positive", 1) else mode <- c("NEG", "NEGATIVE", "negative", 0)
+  if (length(pol_col) > 0) {
+    retained_vector <- sp[[pol_col[1]]] %in% mode
+    results <- results[retained_vector, , drop = FALSE]
+    sp <- sp[retained_vector,]
+    }
   add_log(paste0("Spectra in positive mode: ", length(sp)))
   
   #check mz
@@ -57,12 +118,13 @@ run_analysis <- function(settings_list, sp, add_log){
     retained_vector <- all_mz >= settings_list$basicFilters$mz_min & all_mz <= settings_list$basicFilters$mz_max
     retained_vector[is.na(retained_vector)] <- FALSE
     add_log(paste0("Spectra in mz-Range (", settings_list$basicFilters$mz_min,", ", settings_list$basicFilters$mz_max, "): ", sum(retained_vector)))
+    
     results$mz_filter <- retained_vector
     if(settings_list$basicFilters$mz_priority == "required"){
       results <- results[retained_vector,]
       sp <- sp[retained_vector,]
     }
-    
+
   #check RT
     all_RT <- rtime(sp)
     retained_vector <- all_RT >= settings_list$basicFilters$rt_min & all_RT <= settings_list$basicFilters$rt_max
@@ -203,8 +265,6 @@ run_analysis <- function(settings_list, sp, add_log){
     matches <- as.matrix(results[, 2:ncol(results)])
     matches <- apply(matches,2, function(x) as.integer(x))
     
-    print(head(matches))
-    print(sum(priorities))
     results$score <- rowSums((sweep(matches, MARGIN=2,priorities, `*`))) / sum(priorities)
     
     as.data.frame(results)

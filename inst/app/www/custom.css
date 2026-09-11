@@ -59,6 +59,12 @@
       border-radius: 0.5rem;
 }
 
+.modal-dialog {
+  display: table;
+  width: auto !important;
+  max-width: 95vw;
+  min-width: 500px;
+}
 .card {
   background: #ffffff;
   border-radius: 8px;

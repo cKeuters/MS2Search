@@ -10,6 +10,9 @@
 #' @import future
 #' @import promises
 #' @import readr
+#' @import shinyTree
+#' @import rapiclient
+#' @import data.tree
 #' @noRd
 app_server <- function(input, output, session) {
   
@@ -98,12 +101,27 @@ app_server <- function(input, output, session) {
     DreaMS_priority = "basic"
   )
   
+  # Application results values
+  #
+  # Stores the spectra object and the analysis results
+  #
+  # @details
+  # The following values are maintained:
+  # \describe{
+  #   \item{spectra}{MS2 Spectra Object}
+  #   \item{results}{dataframe of the passed filters}
+  #   \item{running}{state of the analysis}
+  #   \item{log}{logs of the analysis}
+  # }
+  # @keywords internal
   analysis_results <- reactiveValues(
     spectra = NULL,
     results = NULL,
     running = FALSE,
     log = NULL
   )
+  
+  
   log_state <- reactiveValues(file = NULL)
   log_text <- reactiveVal("")
   
@@ -112,9 +130,18 @@ app_server <- function(input, output, session) {
   
   ms1_data <- reactive({
     read_csv("../../data/example.csv")
-    #read_csv(input$ms1_file$datapath)
+    req(input$ms1_file)
+    read_csv(input$ms1_file$datapath)
   })
   
+  metaboAuth <- reactiveValues(
+    authenticated = FALSE, 
+    pending_action = NULL
+    )
+  
+  mod_MetaboScape_auth_server("auth", metaboAuth)
+  MetaboScapeProjects <- reactiveVal(list())
+  MetaboSelectedProjectID <- reactiveVal("")
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -185,10 +212,17 @@ app_server <- function(input, output, session) {
   # states
   observeEvent(input$mode,         { state$mode <- input$mode })
   observeEvent(input$project_name, { state$project_name <- input$project_name })
+
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Outputs and Buttons
   #-----------------------------------------------------------------------------
+  
+  observeEvent(input$extract_ms2, {
+    metaboAuth$require_auth(function() {
+      selectProject_from_metaboscape()   
+    })
+  })
   
   # show output path
   observeEvent(input$out_dir, {
@@ -307,8 +341,7 @@ app_server <- function(input, output, session) {
       paste0(state$project_name, ".zip")
     },
     content = function(file) {
-      
-      setup_and_save_project(create_settings_list(
+      save <- setup_and_save_project(create_settings_list(
         state = reactiveValuesToList(state),
         basicFilterValues = reactiveValuesToList(basicFilterValues),
         toolSettings = reactiveValuesToList(ToolSettings),
@@ -317,7 +350,6 @@ app_server <- function(input, output, session) {
         analysis_results$results,
         analysis_results$spectra,
         file)
-      
     }
   )
   
@@ -482,7 +514,6 @@ app_server <- function(input, output, session) {
     req(selected_feature_id())
     par(mfrow = c(2, 1))
     plot_spectrum_by_id(analysis_results$spectra, noise = FALSE, selected_feature_id(), id_column = "FEATURE_ID")
-    #plot_spectrum_by_id(analysis_results$spectra, noise = TRUE, selected_feature_id(), id_column = "FEATURE_ID")
   })
   
   #run Analysis with logging
@@ -513,6 +544,9 @@ app_server <- function(input, output, session) {
     writeLines("", log_file)
     log_state$file <- log_file
     
+    
+    SelectedProjectID <- MetaboSelectedProjectID()
+    MetaboScapeAPI <- getMetaboScapeConnection()
     future({
       
       write_log <- function(msg) {
@@ -526,7 +560,13 @@ app_server <- function(input, output, session) {
       
       tryCatch({
         
-        spec <- load_spectra(ms2_path, add_log = write_log)
+        if(!is.null(ms2_path)) spec <- load_spectra(ms2_path, add_log = write_log)
+        else if(SelectedProjectID != ""){
+          write_log(paste("Loading with MetaboSelectedProjectID", SelectedProjectID))
+          featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
+          spec <- Spectra(featureTable)
+        } 
+        else write_log("NO MS2")
         
         res <- run_analysis(settings, spec, add_log = write_log)
         
@@ -585,6 +625,82 @@ app_server <- function(input, output, session) {
     nrow(analysis_results$results) > 0
   })
   outputOptions(output, "has_results", suspendWhenHidden = FALSE)
+  
+  
+  #-------------------------------------------------------------------------------
+  # MetaboScape API
+  #-------------------------------------------------------------------------------
+  
+  selectProject_from_metaboscape <- function(){
+    if(length(MetaboScapeProjects()) == 0){
+      
+      MetaboScapeAPI <- getMetaboScapeConnection()
+      res <- MetaboScapeAPI$listAllProjects()
+      projects <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
+      
+      tree <- list()
+
+      for (i in seq_len(nrow(projects))) {
+        project_name <- projects$name[i]
+        exps <- projects$experiments[[i]]
+        exp_nodes <- list()
+
+        for (j in seq_len(nrow(exps))) {
+          ft <- exps$featureTables[[j]]
+
+          ft_nodes <- setNames(
+            lapply(seq_len(nrow(ft)), function(k) {
+              structure("", sticon = "table", stId = ft$id[k], a_attr = list(title = sprintf("Created: %s", ft$creationDate[k])))
+            }),
+            paste0(ft$name, " (", ft$polarity, ", ", ft$creationDate, ")")
+          )
+
+          exp_nodes[[exps$name[j]]] <- structure(
+            ft_nodes,
+            attr  = list(a_attr = list(title = sprintf(
+              "%s%s", exps$creationDate[j],
+              if (!is.na(exps$description[j]) && nzchar(exps$description[j])) paste0(" – ", exps$description[j]) else ""
+            ))
+          ))
+
+
+        }
+        tree[[project_name]] <- exp_nodes
+      }
+
+      tree <- set_node_attrs(tree, attr_name = "stdisabled", inner_val = TRUE, leaf_val = FALSE )
+      MetaboScapeProjects(tree)
+      
+    }
+    show_metaboProjectSelection_modal()
+  }
+  
+  show_metaboProjectSelection_modal <- function() {
+    
+    output$metaboProjectTree <- renderTree({
+      MetaboScapeProjects()
+    })
+    
+    showModal(modalDialog(
+      
+      title = "Project Table Selection",
+      shinyTree("metaboProjectTree", search = TRUE, theme = "proton"),
+      footer = tagList(
+        modalButton("Cancel"),
+        actionButton("SelectProject", "Select")
+      ),
+      easyClose = FALSE
+    ))
+  }
+  
+  observeEvent(input$SelectProject,({
+    table <- get_selected(input$metaboProjectTree)
+    MetaboSelectedProjectID(attr(table[[1]], "stId"))
+    removeModal()
+    
+  }))
+
+  
 
 
   #-----------------------------------------------------------------------------
@@ -630,22 +746,13 @@ app_server <- function(input, output, session) {
                      div(
                        style = "text-align: right;",
                        textOutput("MS2file_info", inline = TRUE)
-                     )
+                     ),
+                     actionButton("extract_ms2", "MS2 from MetaboScape API")
                    ),
                    
                    selectInput("mode", "Ionization Mode",
                                choices = c("Positive" = "pos", "Negative" = "neg"),
                                selected = state$mode)
-                   # br(),
-                   # tags$label(class = "control-label", "Output / Project Directory"),
-                   # div(
-                   #   style = "display:flex; align-items:center;",
-                   #   shinyDirButton("out_dir", "Select output directory","Select output directory"),
-                   #   div(
-                   #     style = "margin-left:auto;",
-                   #     textOutput("out_dir_text", inline = TRUE)
-                   #   )
-                   # )
                    
                ),
                div(class = "flex-distance",
@@ -877,7 +984,10 @@ app_server <- function(input, output, session) {
       featureID <- as.numeric(selected_feature_id())
 
       spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]
-
+      pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(analysis_results$spectra))
+      adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))
+ 
+      
       tagList(
         #plotOutput("spectrum_plot"),
         plotlyOutput("interactive_spectrum"),
@@ -896,11 +1006,11 @@ app_server <- function(input, output, session) {
         ),
         div(class = "detail-row",
             div(class = "detail-label", "Adduct"),
-            div(class = "detail-value", spectrum_info$ION)
+            div(class = "detail-value", spectrum_info[[adduct_col]])
         ),
         div(class = "detail-row",
             div(class = "detail-label", "Polarity"),
-            div(class = "detail-value", spectrum_info$POLARITY)
+            div(class = "detail-value", spectrum_info[[pol_col]])
         ),
         plotOutput("ms1_plot")
       )
