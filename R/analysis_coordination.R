@@ -59,7 +59,7 @@ createSpectradf <- function(operations, featureTableId){
     adducts = adducts,
     polarity = as.integer(pol)
   )
-
+  
   # plan(multisession, workers = 4)
   msms <- future_lapply(featureTable$id, function(id){
     res <- operations$retrieveFeatureMsMsSpectra(id)
@@ -87,7 +87,7 @@ createSpectradf <- function(operations, featureTableId){
 #' @import SpectraQL
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
-  #settings_list <- load_project("path/data/test_settings.zip")$settings_list
+  #settings_list <- load_project("path/data/braabrka.zip")$settings_list
 
   #-----------------------------------------------------------------------------
   # Basic filters and checks
@@ -102,7 +102,8 @@ run_analysis <- function(settings_list, sp, add_log){
   add_log(paste("Non-empty spectra with MS-level 2: ", length(sp)))
   
   results <- data.frame(FEATURE_ID = spectraData(sp)$FEATURE_ID)
-  
+  if("metaboScape_ID" %in% spectraVariables(sp)) results$metaboScape_ID <- spectraData(sp)$metaboScape_ID
+
   #check mode
   pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(sp))
   if(settings_list$project_info$mode == "pos") mode <- c("POS", "POSITIVE", "positive", 1) else mode <- c("NEG", "NEGATIVE", "negative", 0)
@@ -224,6 +225,7 @@ run_analysis <- function(settings_list, sp, add_log){
     # Chain filters
     #-----------------------------------------------------------------------------
     peaks_data <- peaksData(sp_cleaned)
+
     chain_id <- 1
     for(ld in settings_list$lipid_definition){
       masses <- calc_lipid_chain_masses(ld)$mass
@@ -261,10 +263,11 @@ run_analysis <- function(settings_list, sp, add_log){
       sapply(settings_list$lipid_definition, \(x) priority_weights[x$priority])
     )
     priorities <- unname(sapply(priorities, function(x) if (length(x) == 0) 0 else x))
-
-    matches <- as.matrix(results[, 2:ncol(results)])
-    matches <- apply(matches,2, function(x) as.integer(x))
     
+    start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2)
+    matches <- as.matrix(results[, start_filtercols:ncol(results)])
+    matches <- apply(matches, 2, function(x) as.integer(x))
+ 
     results$score <- rowSums((sweep(matches, MARGIN=2,priorities, `*`))) / sum(priorities)
     
     as.data.frame(results)

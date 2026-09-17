@@ -144,6 +144,9 @@ app_server <- function(input, output, session) {
   MetaboScapeProjects <- reactiveVal(list())
   MetaboSelectedProjectID <- reactiveVal("")
   
+  MS2file_name <- reactiveVal("")
+  checked_features <- reactiveVal(NULL) 
+  
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
   #-----------------------------------------------------------------------------
@@ -225,14 +228,6 @@ app_server <- function(input, output, session) {
     })
   })
   
-  # show output path
-  # observeEvent(input$out_dir, {
-  #   req(input$out_dir)
-  #   path <- as.character(parseDirPath(roots, input$out_dir))
-  #   if (length(path) > 0 && nzchar(path)) {
-  #     state$out_dir <- path
-  #   }
-  # })
   
   # Output MS2 file name
   MS2file_info <- reactive({
@@ -253,22 +248,15 @@ app_server <- function(input, output, session) {
     MS2file_name()
   })
   
-  MS2file_name <- reactiveVal("")
-  
-  # MS2file_name <- reactive({
-  #   req(input$ms2_file)
-  #   
-  #   ext <- tools::file_ext(input$ms2_file$name)
-  #   switch(ext,
-  #          mgf = input$ms2_file$name,
-  #          validate("Invalid file; Please upload a .mgf file (other file types are following)")
-  #   )
-  # })
-  
   # Button Start Analysis
   observeEvent(input$start_analysis, {
-    if(input$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
-    state$screen <- "Analysis"
+    if(MS2file_name() == ""){
+      showNotification("No MS2 data selected", type="warning")
+    }else{
+      if(input$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
+      state$screen <- "Analysis"
+    }
+
   })
   
   # Button Return to Setup
@@ -294,6 +282,7 @@ app_server <- function(input, output, session) {
     content = function(file) {
       
       res <- analysis_results$results
+      res$selected <- checked_features()
       write.csv(res, file, row.names = FALSE)
     }
   )
@@ -328,20 +317,6 @@ app_server <- function(input, output, session) {
   shinyDirChoose(input, "out_dir", roots = roots, session = session)
   shinyDirChoose(input, "load_project", roots = roots, session = session)
   
-  # Save Project
-  # observeEvent(input$save_project, {
-  #   setup_and_save_project(create_settings_list(
-  #     state = reactiveValuesToList(state),
-  #     basicFilterValues = reactiveValuesToList(basicFilterValues),
-  #     toolSettings = reactiveValuesToList(ToolSettings),
-  #     cards   = all_cards_data(), lipid_definition = all_chain_data(),
-  #     headgroup = head_group()),
-  #     analysis_results$results,
-  #     analysis_results$spectra,
-  #     paste0(state$out_dir, "/", state$project_name,".zip")
-  #   )
-  #   showNotification(paste0("Project saved to ",  paste0(state$out_dir, "/", state$project_name,".zip")))
-  # })
   
   output$export_project <- downloadHandler(
     filename = function() {
@@ -718,16 +693,31 @@ app_server <- function(input, output, session) {
   }))
 
   observeEvent(input$setFlagsToMetaboScape,({
+    res <- analysis_results$results
+    req(res)
+    
     tableID <- MetaboSelectedProjectID()
     if(tableID == "") {metaboAuth$require_auth(function() {
       selectProject_from_metaboscape()   
     })}
     
-    showNotification("Not implemented yet")
-    return()
+
     MetaboScapeAPI <- getMetaboScapeConnection()
-    res <- MetaboScapeAPI$addFlagToFeature(featureId = "?????", flag = "BLUE")
+    current <- isolate(checked_features())
     
+    true_ids <- names(current)[current]
+    true_ids <- na.omit(true_ids)
+    
+    print(true_ids)
+
+    for(feature in true_ids){
+
+      metaboID <- res[which(res$FEATURE_ID == feature),]$metaboScape_ID
+      res <- MetaboScapeAPI$addFlagToFeature(featureId = metaboID, flag = "BLUE")
+      
+    }
+      
+
   }))
 
 
@@ -767,15 +757,18 @@ app_server <- function(input, output, session) {
                div(class = "card required-card",
                    div(class = "required-badge", "Required"),
                    div(class = "card-title", "Required Inputs"),
-                   div(
-                     style = "margin-left: auto; min-width: 150px;",
-                     fileInput("ms2_file", "MS2 Data", placeholder = ifelse(is.null(MS2file_info()),"No file selected", MS2file_info()),
-                               accept = c(".mgf", ".msp", ".mzmine", ".mzTab")),
+                   div( class = "ms2Input-row",
                      div(
-                       style = "text-align: right;",
-                       textOutput("MS2file_info", inline = TRUE)
+                       style = "min-width: 150px;",
+                       fileInput("ms2_file", "MS2 Data", placeholder = ifelse(is.null(MS2file_info()),"No file selected", MS2file_info()),
+                                 accept = c(".mgf", ".msp", ".mzmine", ".mzTab")),
+                       
                      ),
                      actionButton("extract_ms2", "MS2 from MetaboScape API")
+                   ),
+                   div(
+                     class = "input-badge",
+                     textOutput("MS2file_info", inline = TRUE)
                    ),
                    
                    selectInput("mode", "Ionization Mode",
@@ -831,86 +824,135 @@ app_server <- function(input, output, session) {
           ")),
       createAnalysisLegend(),
       fluidRow(
+        # column(
+        #   width = 4,
+        #   div(class = "card analysis-card",
+        #       tags$label(
+        #         class = "switch",
+        #         tags$input(
+        #           type = "checkbox",
+        #           id = "LipidIN_active",
+        #           checked = if (ToolSettings$LipidIN) "checked" else NULL
+        #         ),
+        #         tags$span(class = "slider")
+        #       ),
+        #       div(class = if (!isTRUE(input$LipidIN_active)) "disabled-div" , 
+        #           div(class = "card-title", "LipidIN",
+        #               createInfoI("LipidIN_info","LipidIN is a tool")),
+        #           createPriorityRadioButtons("LipidIN_priority", ToolSettings$LipidIN_priority),
+        #           tags$details(
+        #             tags$summary(
+        #               class = "advanced-settings",
+        #               "Advanced Settings"
+        #             ),
+        #             
+        #             br(),
+        #             numericInput("LipidIN_ppm1", "ppm 1", value = ToolSettings$LipidIN_ppm1),
+        #             numericInput("LipidIN_ppm2", "ppm 2", value = ToolSettings$LipidIN_ppm2)
+        #           )
+        #           
+        #       )
+        #   ),
+        # ),
         column(
-          width = 4,
-          div(class = "card analysis-card",
-              tags$label(
-                class = "switch",
-                tags$input(
-                  type = "checkbox",
-                  id = "LipidIN_active",
-                  checked = if (ToolSettings$LipidIN) "checked" else NULL
-                ),
-                tags$span(class = "slider")
-              ),
-              div(class = if (!isTRUE(input$LipidIN_active)) "disabled-div" , 
-                  div(class = "card-title", "LipidIN",
-                      createInfoI("LipidIN_info","LipidIN is a tool")),
-                  createPriorityRadioButtons("LipidIN_priority", ToolSettings$LipidIN_priority),
-                  tags$details(
-                    tags$summary(
-                      class = "advanced-settings",
-                      "Advanced Settings"
-                    ),
-                    
-                    br(),
-                    numericInput("LipidIN_ppm1", "ppm 1", value = ToolSettings$LipidIN_ppm1),
-                    numericInput("LipidIN_ppm2", "ppm 2", value = ToolSettings$LipidIN_ppm2)
-                  )
+          width = 8,
+          div(
+            class = "card analysis-card",
+            div(class = "card-title", "Basic filters"),
+                div(
+                  class = "basic-filter-container",
                   
-              )
+                  div(
+                    class = "filter-group",
+                    h5("m/z"),
+                    div(class = "input-block",
+                        numericInput("mz_min", "Minimum", basicFilterValues$mz_min)),
+                    div(class = "input-block",
+                        numericInput("mz_max", "Maximum", basicFilterValues$mz_max)),
+                    createPriorityRadioButtons("mz_priority",
+                                               basicFilterValues$mz_priority,
+                                               horizontal = TRUE)
+                  ),
+                  
+                  div(
+                    class = "filter-group",
+                    h5("Retention Time"),
+                    div(class = "input-block",
+                        numericInput("rt_min", "Minimum (s)", basicFilterValues$rt_min)),
+                    div(class = "input-block",
+                        numericInput("rt_max", "Maximum (s)", basicFilterValues$rt_max)),
+                    createPriorityRadioButtons("rt_priority",
+                                               basicFilterValues$rt_priority,
+                                               horizontal = TRUE)
+                  ),
+                  
+                  div(
+                    class = "filter-group",
+                    h5("Number of peaks"),
+                    div(class = "input-block",
+                        numericInput("n_peaks_min", "Minimum", basicFilterValues$n_peaks_min)),
+                    div(class = "input-block",
+                        numericInput("n_peaks_max", "Maximum", basicFilterValues$n_peaks_max)),
+                    createPriorityRadioButtons("n_peaks_priority",
+                                               basicFilterValues$n_peaks_priority,
+                                               horizontal = TRUE)
+                  )
+                )
+              
+            )
+            
+
           ),
-        ),
-        column(
-          width = 4,
-          div(class = "card analysis-card",
-              div(class = "card-title", "Basic filters"
-              ),
-              div(class = "flex-distance",
-                  div(class = "input-block",numericInput("mz_min", "m/z minimum",  basicFilterValues$mz_min)),
-                  div(class = "input-block",numericInput("mz_max", "m/z maximum", basicFilterValues$mz_max)),
-                  createPriorityRadioButtons("mz_priority", basicFilterValues$mz_priority, horizontal = FALSE)),
-              div(class = "flex-distance",
-                  div(class = "input-block",numericInput("rt_min", "RT minimum (in seconds)", basicFilterValues$rt_min)),
-                  div(class = "input-block",numericInput("rt_max", "RT maximum (in seconds)", basicFilterValues$rt_max)),
-                  createPriorityRadioButtons("rt_priority",basicFilterValues$rt_priority, horizontal = FALSE)),
-              div(class = "flex-distance",
-                  div(class = "input-block", numericInput("n_peaks_min", "minimum number of peaks", basicFilterValues$n_peaks_min)),
-                  div(class = "input-block", numericInput("n_peaks_max", "maximum number of peaks", basicFilterValues$n_peaks_max)),
-                  createPriorityRadioButtons("n_peaks_priority",basicFilterValues$n_peaks_priority, horizontal = FALSE))
-          ) 
-        ),
-        column(
-          width = 4,
-          div(class = "card analysis-card",
-              tags$label(
-                class = "switch",
-                tags$input(
-                  type = "checkbox",
-                  id = "DreaMS_active",
-                  checked = if (ToolSettings$DreaMS) "checked" else NULL
-                ),
-                tags$span(class = "slider")
-              ),
-              div(class = if (!isTRUE(input$DreaMS_active)) "disabled-div" , 
-                  div(class = "card-title", "DreaMS",
-                      createInfoI("DreaMS_info","DreaMS is a tool")),
-                  
-                  createPriorityRadioButtons("DreaMS_priority", ToolSettings$DreaMS_priority),
-                  
-                  tags$details(
-                    tags$summary(
-                      class = "advanced-settings",
-                      "Advanced Settings"
-                    ),
-                    
-                    br(),
-                    numericInput("ppm1", "ppm 1", value = 10),
-                    numericInput("ppm2", "ppm 2", value = 50)
-                  )
-              )
-          )
-        )
+        column(width = 4,
+               div(
+                 class = "card analysis-card",
+                 div(class = "card-title", "Intensity Filtering"),
+               
+               div(                  
+                 div(
+                   class = "filter-group",
+                   h5("Filtering MS2 Spectra"),
+                   div(class = "input-block",
+                       numericInput("min_intensity", "Minimum intensity treshold", 20)),
+                   div(class = "input-block",
+                       numericInput("percent_maxPeak", "Percent from max Peak", 1))
+                 ))
+               
+               )
+        
+      
+        )#,
+        # column(
+        #   width = 4,
+        #   div(class = "card analysis-card",
+        #       tags$label(
+        #         class = "switch",
+        #         tags$input(
+        #           type = "checkbox",
+        #           id = "DreaMS_active",
+        #           checked = if (ToolSettings$DreaMS) "checked" else NULL
+        #         ),
+        #         tags$span(class = "slider")
+        #       ),
+        #       div(class = if (!isTRUE(input$DreaMS_active)) "disabled-div" , 
+        #           div(class = "card-title", "DreaMS",
+        #               createInfoI("DreaMS_info","DreaMS is a tool")),
+        #           
+        #           createPriorityRadioButtons("DreaMS_priority", ToolSettings$DreaMS_priority),
+        #           
+        #           tags$details(
+        #             tags$summary(
+        #               class = "advanced-settings",
+        #               "Advanced Settings"
+        #             ),
+        #             
+        #             br(),
+        #             numericInput("ppm1", "ppm 1", value = 10),
+        #             numericInput("ppm2", "ppm 2", value = 50)
+        #           )
+        #       )
+        #   )
+        # )
 
       )
     )
@@ -956,46 +998,88 @@ app_server <- function(input, output, session) {
     t(df)
   }, striped = TRUE, rownames = TRUE, colnames = FALSE, sanitize.text.function = function(x) x)
   
-  # output$feature_info_table <- renderTable({
-  #   req(nrow(analysis_results$results) > 0)
-  #   req(selected_feature_id())
-  #   res <- analysis_results$results
-  #   featureID <- as.numeric(selected_feature_id())
-  #   i <- which(res$FEATURE_ID == featureID)
-  #   
-  #   data <- spectraData(sp)[sp$FEATURE_ID == featureID]
-  #   results <- results[,c("FEATURE_ID")]
-  #   
-  #   df <- res[res$FEATURE_ID == i, 2:ncol(res)]
-  # 
-  # 
-  # }, striped = TRUE)
   
+  
+  
+  
+  # --- helper: build a checkbox <input> for one row ---
+  checkbox_html <- function(id, checked) {
+    sprintf(
+      '<input type="checkbox" class="feature-checkbox" data-feature-id="%s"%s/>',
+      id,
+      if (isTRUE(checked)) " checked" else ""
+    )
+  }
+  
+  # JS that listens for clicks on any checkbox in the table and reports
+  # back to Shiny which feature was (un)checked. Delegated on the table
+  # body, so it survives DT's server-side redraws.
+  checkbox_js <- DT::JS(
+    "table.on('change', 'input.feature-checkbox', function() {",
+    "  var id = $(this).data('feature-id');",
+    "  var checked = $(this).is(':checked');",
+    "  Shiny.setInputValue('feature_checkbox_change',",
+    "    {id: id, checked: checked}, {priority: 'event'});",
+    "});"
+  )
+  
+
+  observeEvent(analysis_results$results, {
+    checked_features(setNames(analysis_results$results$score > 0.5, as.character(analysis_results$results$FEATURE_ID)))
+  }, ignoreNULL = TRUE)
   
   output$featureTable <- DT::renderDataTable({
     req(analysis_results$results)
     res <- analysis_results$results
-
-    spectrum_info <- as.data.frame(spectraData(analysis_results$spectra)[match(res$FEATURE_ID, spectraData(analysis_results$spectra)$FEATURE_ID), c("FEATURE_ID", "precursorMz", "rtime")])
+    
+    spectrum_info <- as.data.frame(spectraData(analysis_results$spectra)[
+      match(res$FEATURE_ID, spectraData(analysis_results$spectra)$FEATURE_ID),
+      c("FEATURE_ID", "precursorMz", "rtime")
+    ])
     spectrum_info$score <- res$score
+    
+    current <- isolate(checked_features())        
+    ids <- as.character(spectrum_info$FEATURE_ID)  
+    
+    spectrum_info$selected <- mapply(
+      checkbox_html,
+      ids,
+      current[ids],
+      USE.NAMES = FALSE
+    )
+    
+    spectrum_info <- spectrum_info[, c( "FEATURE_ID", "precursorMz", "rtime", "score", "selected")]
     
     DT::datatable(
       spectrum_info,
       selection = "single",
       class = "feature-table",
       rownames = FALSE,
-      colnames = c("Feature ID", "m/z", "Retention time", "Score"),
+      escape = FALSE,
+      colnames = c("Feature ID", "m/z", "Retention time", "Score", "Include"),
       options = list(
         pageLength = 25,
         lengthMenu = c(25, 50, 100),
-        order = list(list(3, "desc"))
-      )
+        order = list(list(4, "desc")),
+        columnDefs = list(list(orderable = FALSE, targets = 0))
+      ),
+      callback = checkbox_js
     ) |>
       DT::formatRound(columns = "precursorMz", digits = 6) |>
       DT::formatRound(columns = "rtime", digits = 4) |>
       DT::formatRound(columns = "score", digits = 3)
     
   }, server = TRUE)
+  
+  # catch checkbox toggles from the client
+  observeEvent(input$feature_checkbox_change, {
+    info <- input$feature_checkbox_change
+    current <- checked_features()
+    current[[as.character(info$id)]] <- isTRUE(info$checked)
+    checked_features(current)                     
+  }, ignoreInit = TRUE)
+  
+  
   
   output$ms1_plot <- renderPlot({
     req(selected_feature_id())
