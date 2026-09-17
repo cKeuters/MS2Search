@@ -38,7 +38,8 @@ app_server <- function(input, output, session) {
     screen = "Setup",
     out_dir = path.expand("~"),
     mode = "pos",
-    project_name = ""
+    project_name = "",
+    newMS2data = TRUE
   )
   
   # Values of Basisfilters
@@ -225,38 +226,44 @@ app_server <- function(input, output, session) {
   })
   
   # show output path
-  observeEvent(input$out_dir, {
-    req(input$out_dir)
-    path <- as.character(parseDirPath(roots, input$out_dir))
-    if (length(path) > 0 && nzchar(path)) {
-      state$out_dir <- path
-    }
-  })
-  output$out_dir_text <- renderText({
-    state$out_dir
-  })
+  # observeEvent(input$out_dir, {
+  #   req(input$out_dir)
+  #   path <- as.character(parseDirPath(roots, input$out_dir))
+  #   if (length(path) > 0 && nzchar(path)) {
+  #     state$out_dir <- path
+  #   }
+  # })
   
   # Output MS2 file name
   MS2file_info <- reactive({
     if (is.null(input$ms2_file)) {
       NULL
     } else {
+      state$newMS2data <- TRUE
+      ext <- tools::file_ext(input$ms2_file$name)
+      MS2file_name(switch(ext,
+               mgf = input$ms2_file$name,
+               validate("Invalid file; Please upload a .mgf file (other file types are following)")
+        ))
       input$ms2_file$name
     }
   })
+  
   output$MS2file_info <- renderText({
     MS2file_name()
   })
   
-  MS2file_name <- reactive({
-    req(input$ms2_file)
-    
-    ext <- tools::file_ext(input$ms2_file$name)
-    switch(ext,
-           mgf = input$ms2_file$name,
-           validate("Invalid file; Please upload a .mgf file (other file types are following)")
-    )
-  })
+  MS2file_name <- reactiveVal("")
+  
+  # MS2file_name <- reactive({
+  #   req(input$ms2_file)
+  #   
+  #   ext <- tools::file_ext(input$ms2_file$name)
+  #   switch(ext,
+  #          mgf = input$ms2_file$name,
+  #          validate("Invalid file; Please upload a .mgf file (other file types are following)")
+  #   )
+  # })
   
   # Button Start Analysis
   observeEvent(input$start_analysis, {
@@ -368,7 +375,7 @@ app_server <- function(input, output, session) {
     state$mode <- pi$mode
     state$out_dir <- pi$out_dir
     state$screen <- pi$screen
-    
+
     li <- settings_list$LipidIN_settings
     ToolSettings$LipidIN <- li$active
     ToolSettings$LipidIN_priority <- li$priority
@@ -401,6 +408,7 @@ app_server <- function(input, output, session) {
     if(!is.null(project_results) & !is.null(project_spectra)){
       analysis_results$results <- project_results
       analysis_results$spectra <- project_spectra
+      state$newMS2data <- FALSE
       state$screen <- "Results"
     }
     
@@ -518,6 +526,11 @@ app_server <- function(input, output, session) {
   
   #run Analysis with logging
   observeEvent(input$run_analysis, {
+    ms2_path <- input$ms2_file$datapath
+    SelectedProjectID <- MetaboSelectedProjectID()
+    
+    if(state$newMS2data && is.null(ms2_path) && SelectedProjectID == "") showNotification("No MS2 data selected", type= "error")
+    req(!is.null(ms2_path) || SelectedProjectID != "" || !state$newMS2data)
     
     state$screen <- "Results"
     analysis_results$running <- TRUE
@@ -529,7 +542,6 @@ app_server <- function(input, output, session) {
     
     #append_log("Starting Analysis")
     
-    ms2_path <- input$ms2_file$datapath
 
     settings <- create_settings_list(
       state             = reactiveValuesToList(state),
@@ -545,7 +557,6 @@ app_server <- function(input, output, session) {
     log_state$file <- log_file
     
     
-    SelectedProjectID <- MetaboSelectedProjectID()
     MetaboScapeAPI <- getMetaboScapeConnection()
     future({
       
@@ -556,18 +567,21 @@ app_server <- function(input, output, session) {
           file = log_file, append = TRUE
         )
       }
-      
+
       
       tryCatch({
         
-        if(!is.null(ms2_path)) spec <- load_spectra(ms2_path, add_log = write_log)
-        else if(SelectedProjectID != ""){
-          write_log(paste("Loading with MetaboSelectedProjectID", SelectedProjectID))
-          featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
-          spec <- Spectra(featureTable)
-        } 
-        else write_log("NO MS2")
-        
+        if(state$newMS2data){
+          if(!is.null(ms2_path)) spec <- load_spectra(ms2_path, add_log = write_log)
+          else if(SelectedProjectID != ""){
+            write_log(paste("Loading with MetaboSelectedProjectID", SelectedProjectID))
+            featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
+            spec <- Spectra(featureTable)
+          } 
+          else write_log("NO MS2")
+        }
+        else spec <- analysis_results$spectra
+
         res <- run_analysis(settings, spec, add_log = write_log)
         
         list(
@@ -586,6 +600,7 @@ app_server <- function(input, output, session) {
     }) %...>% {
       # success handler
       logs <- paste(readLines(.$log_file, warn = FALSE), collapse = "\n")
+      state$newMS2data <- FALSE
       
       analysis_results$spectra <- .$spectra
       analysis_results$results <- .$results
@@ -685,6 +700,7 @@ app_server <- function(input, output, session) {
       
       title = "Project Table Selection",
       shinyTree("metaboProjectTree", search = TRUE, theme = "proton"),
+      
       footer = tagList(
         modalButton("Cancel"),
         actionButton("SelectProject", "Select")
@@ -697,10 +713,22 @@ app_server <- function(input, output, session) {
     table <- get_selected(input$metaboProjectTree)
     MetaboSelectedProjectID(attr(table[[1]], "stId"))
     removeModal()
-    
+    state$newMS2data <- TRUE
+    MS2file_name(table[[1]][1])
   }))
 
-  
+  observeEvent(input$setFlagsToMetaboScape,({
+    tableID <- MetaboSelectedProjectID()
+    if(tableID == "") {metaboAuth$require_auth(function() {
+      selectProject_from_metaboscape()   
+    })}
+    
+    showNotification("Not implemented yet")
+    return()
+    MetaboScapeAPI <- getMetaboScapeConnection()
+    res <- MetaboScapeAPI$addFlagToFeature(featureId = "?????", flag = "BLUE")
+    
+  }))
 
 
   #-----------------------------------------------------------------------------
@@ -904,7 +932,8 @@ app_server <- function(input, output, session) {
   
   output$results_ui <- renderUI({ 
     tagList(
-      verbatimTextOutput("log")
+      verbatimTextOutput("log"),
+      actionButton("setFlagsToMetaboScape", "Set Flags to MetaboScape")
     )
     })
   
@@ -984,10 +1013,9 @@ app_server <- function(input, output, session) {
       featureID <- as.numeric(selected_feature_id())
 
       spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]
-      pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(analysis_results$spectra))
-      adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))
- 
-      
+      pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(analysis_results$spectra))[1]
+      adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
+  
       tagList(
         #plotOutput("spectrum_plot"),
         plotlyOutput("interactive_spectrum"),
@@ -1006,7 +1034,7 @@ app_server <- function(input, output, session) {
         ),
         div(class = "detail-row",
             div(class = "detail-label", "Adduct"),
-            div(class = "detail-value", spectrum_info[[adduct_col]])
+            div(class = "detail-value", paste(unlist(spectrum_info[[adduct_col]]), collapse = ", "))
         ),
         div(class = "detail-row",
             div(class = "detail-label", "Polarity"),

@@ -170,79 +170,132 @@ get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
 # create brkrrba file
 #-------------------------------------------------------------------------------
 
+#' @import dplyr
+#' @noRd
 create_brkrrba_file <- function(settings_list, file_path){
-  
-  neutralPrecursorFormula <- "{backbone}+C{carbonsInAllChains}+H({carbonsInAllChains}*2-{DBEinAllChains}*2)"
   
   searchedSpecies <- "CER"
   annotationName <- sprintf("%s {carbonsInAllChains}:{DBEinAllChains}", searchedSpecies )
   
-  
-  #chains to query
-  if(is.null(settings_list$lipid_definition) || length(settings_list$lipid_definition) == 0) sublevel_chain_definition <- list()
-  else{
-  sublevel_chain_definition <- setNames(
-    lapply(seq_along(settings_list$lipid_definition), function(i) {
-      x <- settings_list$lipid_definition[[i]]
-      
-    formula = paste0(
-      "C{carbonsPerChain", i, "}+H({carbonsPerChain", i,"}*2-{DBEPerChain", i, "}*2)",
-      if (length(x$modifications) > 0)
-        paste0(" + ", paste(sapply(x$modifications, `[[`, "formula"), collapse = " + "))
-      else ""
-      )
+  chain_opt_mods <- unname(lapply(seq_along(settings_list$lipid_definition), function(i) {
+    x <- settings_list$lipid_definition[[i]]
+    if(length(x$modifications) == 0)return(NULL)
     
+    mods <- x$modifications
+    formulas <- lapply(mods, function(m){if(m$optional) m$formula})
+
+    counts <- tibble(formula = unlist(formulas)) %>% count(formula)
+    lapply(seq_len(nrow(counts)), function(j) {
       list(
-        level = "Chain Level",
-        annotationName = "Unknown Annotation Name",
-        descriptors = list(list(
-          label = paste0("Chain ", i),
-          query = sprintf(
-            "QUERY scaninfo(MS2DATA) WHERE MS2NL=formula(%s):TOLERANCEMZ=0.01",
-            formula
-          ),
-          signalInfoLabel = paste0("{carbonsPerChain", i, "}:{DBEPerChain", i, "}")
-          #requiredSignalsForAnnotation = 1
-          #validationRule = ""
-        ))
+        name = mod_name <- gsub( "=", "DB_",paste0(counts$formula[j], "_", i)),
+        valueType = "intRange",
+        value = c(0, counts$n[j])
       )
-      
+    })
     
-    }),
-    paste0("Chain", seq_along(settings_list$lipid_definition))
-  )}
+  }))
+
+  chain_formulas <- lapply(seq_along(settings_list$lipid_definition), function(i) {
+    x <- settings_list$lipid_definition[[i]]
+
+    opt_mods <- lapply(x$modifications, function(m){if(m$optional) m$formula})
+    opt_mods <- Filter(Negate(is.null), opt_mods)
+    opt_mods <- unique(opt_mods)
+    
+    mod_DB_count <- 0
+    req_mods <- lapply(x$modifications, function(m){
+      if(!m$optional){
+        if(grepl("=",m$formula, fixed = TRUE)) mod_DB_count <<- mod_DB_count + 1
+        gsub( "=", "",m$formula)
+      }})
+    req_mods <- Filter(Negate(is.null), req_mods)
+    
+
+    formula <- paste0(
+      "C{carbonsPerChain", i, "} + H({carbonsPerChain", i, "}*2) - H({DBEPerChain", i, "}*2)",
+      if (length(req_mods) > 0)
+        paste0(paste0(" + ", paste(req_mods, collapse = " + ")), " - H",length(req_mods))
+      else "",
+      if (length(opt_mods) > 0)
+        paste0(
+          " + ",
+          paste(
+            sapply(opt_mods, function(m) {
+              mod_name <- gsub( "=", "DB_",paste0(m, "_", i))
+              elements <- unlist(strsplit(m, "")[[1]])
+              elements <- elements[elements != "="]
+              paste0(
+              paste(
+                sapply(elements, function(e) {
+                  paste0(e, "({", mod_name, "})")
+                }),
+                collapse = " + "
+              ), "- H({", mod_name, "})")
+            }),
+            collapse = " + "
+          )
+        )
+      else ""
+    )
+    
+    #removing one H for each double bound in the required modifications
+    print(mod_DB_count)
+    if(mod_DB_count > 0){
+      formula <- paste0(formula, " - H", mod_DB_count)
+    }
+    
+    #removing one H for each double bound in the optional modifications
+    matches <- gregexpr("\\{([^}]+)\\}", formula, perl = TRUE)
+    vars <- unique(regmatches(formula, matches)[[1]])
+    if(sum(grepl("DB_", vars)) != 0){
+      formula <- paste0(formula, " - ", paste(lapply(vars[grepl("DB_", vars)], function(x){
+        paste0(" - H(",x,")")
+      })))
+    }
+
+    
+    formula
+    
+  })
   
-  if(is.null(settings_list$specific_filters) || length(settings_list$specific_filters) == 0) sublevel_rule_definition <- list()
-  else{
+  chain_descriptors <- lapply(seq_along(chain_formulas),function(i){
+    list(
+      label = paste0("Chain ", i),
+      query = sprintf(
+        "QUERY scaninfo(MS2DATA) WHERE MS2PROD=formula(%s):TOLERANCEMZ=0.01",
+        chain_formulas[i]
+      ),
+      signalInfoLabel = paste0("{carbonsPerChain", i, "}:{DBEPerChain", i, "}")
+    )
+  })
   
-  sublevel_rule_definition <- setNames(
-    lapply(seq_along(settings_list$specific_filters), function(i) {
-      x <- settings_list$specific_filters[[i]]
-      masses <- vapply(x$entries, function(e) {
-        resolve_mass(list(input_type = x$input_type, value = e$value, is_mzPeak = x$is_mzPeak),settings_list$project_info$mode)
+  neutralPrecursorFormula <- paste0("{backbone} + ", paste(chain_formulas, collapse = " + "))
+  
+  #Building a sublevel for Rules
+  if(length(settings_list$specific_filters)!= 0) {subLevel <- list(
+    level = "Rule Level",
+    annotationName = "Unknown Annotation Name",
+    descriptors = lapply(settings_list$specific_filters, function(rule){
+      
+      masses <- vapply(rule$entries, function(e) {
+        resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
       }, numeric(1))
       
-      NL_or_peak <- ifelse(x$is_mzPeak, "MS2PROD", "MS2NL")
+      NL_or_peak <- ifelse(rule$is_mzPeak, "MS2PROD", "MS2NL")
       query <- paste0("QUERY scaninfo(MS2DATA) WHERE ",NL_or_peak ,"=(",
                       paste(masses, collapse = " OR "),
                       "):TOLERANCEMZ=0.01")
-      
-      signalInfoLabel <- paste0(NL_or_peak, ": ", paste(sapply(x$entries, `[[`, "value"), collapse = ", "))
-      
+
       list(
-        level = "Rule Level",
-        annotationName = "Unknown Annotation Name",
-        descriptors = list(list(
-          label = x$label,
-          query = query,
-          signalInfoLabel = signalInfoLabel
-        )),
-        requiredSignalsForAnnotation = 1
+        label = rule$label,
+        query = query,
+        signalInfoLabel = paste0(NL_or_peak, ": ", paste(sapply(rule$entries, `[[`, "value"), collapse = ", "))
       )
     }),
-    paste0("Rule", seq_along(settings_list$specific_filters))
-  )
-  }
+    requiredSignalsForAnnotation = 0
+  )}
+  else subLevel <- NULL
+  
   
   #full structure
   lipid_def <- list(
@@ -250,7 +303,7 @@ create_brkrrba_file <- function(settings_list, file_path){
       list(
         name = "backbone",
         valueType = "formula",
-        value = settings_list$head_group
+        value = ifelse(is.null(settings_list$chain_info$headgroup),"", settings_list$chain_info$headgroup)
       ),
       list(name = "numberOfChains",
            valueType = "int",
@@ -287,8 +340,10 @@ create_brkrrba_file <- function(settings_list, file_path){
       )
     },
     settings_list$lipid_definition,
-    seq_along(settings_list$lipid_definition)))
+    seq_along(settings_list$lipid_definition))),
+    do.call(c, chain_opt_mods)
     ),
+    
     annotation = 
       list(list(
         polarityType = ifelse(settings_list$project_info$mode == "pos", "positive", "negative"),
@@ -298,18 +353,19 @@ create_brkrrba_file <- function(settings_list, file_path){
             neutralPrecursorFormula = neutralPrecursorFormula,
             #regressionParametersCCS = list(),
             annotationConfiguration =
-              c(
+              list(
                 level = "Species Level",
                 annotationName = annotationName,
-                #descriptors = list(),
-                sublevel_chain_definition,
-                sublevel_rule_definition
+                descriptors = chain_descriptors,
+                subLevel = subLevel
               )
+            
           ))
       )
       )
   )
   
+
   #json_file <- paste0(settings_list$project_info$out_dir,"/lipid_def_",settings_list$project_info$project_name,".brkrrba")
   json_file <- file_path
   write(toJSON(lipid_def, auto_unbox = TRUE, pretty = TRUE), json_file)
