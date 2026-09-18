@@ -40,6 +40,10 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
       n_peaks_min = basicFilterValues$n_peaks_min ,
       n_peaks_max = basicFilterValues$n_peaks_max,
       n_peaks_priority = basicFilterValues$n_peaks_priority,
+      min_filtering_type  = basicFilterValues$min_filtering_type,
+      fixed_threshold = basicFilterValues$fixed_threshold ,
+      percent_trehsold = basicFilterValues$percent_trehsold ,
+      noiseFiltering_method = basicFilterValues$noiseFiltering_method,
       tolerance_ppm = basicFilterValues$tolerance_ppm,
       minimum_dalton = basicFilterValues$minimum_dalton
     ),
@@ -388,7 +392,7 @@ plottingSpectra <- function(sp, feature_id, settings_list){
   spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID") 
   mz <- unlist(spectrum$mz)
   intensities <- unlist(spectrum$intensity)
-  filtered_spectrum <- cleaning_ref(spectrum)
+  filtered_spectrum <- cleaning_ref(spectrum, settings_list$basicFilters)
   mz_filtered <- unlist(filtered_spectrum$mz)
 
   filter_results <- useRulesOnSpectrum(spectrum, settings_list)
@@ -433,7 +437,7 @@ plottingSpectra <- function(sp, feature_id, settings_list){
 useRulesOnSpectrum <- function(spectrum, settings_list){
   rules <- settings_list$specific_filters
   filter_results <- list()
-  denoised_spectrum <- cleaning_ref(spectrum)
+  denoised_spectrum <- cleaning_ref(spectrum,settings_list$basicFilters )
   for(rule in rules){
     
     if(!rule$filter_noise) peaks_data <- peaksData(spectrum)[[1]]

@@ -137,7 +137,7 @@ run_analysis <- function(settings_list, sp, add_log){
       sp <- sp[retained_vector,]
     }
     
-  sp_cleaned <- cleaning_ref(sp)
+  sp_cleaned <- cleaning_ref(sp, settings_list$basicFilters)
   
     
   #check peak count
@@ -370,24 +370,48 @@ findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
 
 #' Noise filtering 
 #'
-#' @description Noise filtering from https://doi.org/10.1021/acs.analchem.5c02109
+#' @description Noise filtering 
 #'
-#' @return returns the cleaned spectra
+#' @return returns the cleaned spectra coefWMA
 #'
 #' @import MASS
 #' @import tidyverse
 #' @noRd
-cleaning_ref<- function(ms2){
-  sps_filtered <- addProcessing(ms2, function(x, spectrumMsLevel) {
-    n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "SuperSmoother")
-    x[x[, "intensity"] > 3 * n, , drop = FALSE]
-  })
+cleaning_ref<- function(ms2, basicFilterValues){
   
-  # sps_filtered <- filterIntensity(
-  #   sps_filtered,
-  #   intensity = 20  
-  # )
-  # 
+  sps_filtered <- switch(
+    basicFilterValues$noiseFiltering_method,
+    
+    "MAD" = addProcessing(ms2, function(x, spectrumMsLevel) {
+      n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "MAD")
+      x[x[, "intensity"] > 3 * n, , drop = FALSE]
+    }),
+    
+    "SuperSmoother" = addProcessing(ms2, function(x, spectrumMsLevel) {
+      n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "SuperSmoother")
+      x[x[, "intensity"] > 3 * n, , drop = FALSE]
+    }),
+    
+    "wma" = addProcessing(ms2, function(x, spectrumMsLevel) {
+      if (nrow(x) < 3) return(x)
+      x[, 2] <- MsCoreUtils::smooth(x[, 2], cf = MsCoreUtils::coefWMA(hws = 1))
+      return(x)
+    }),
+    
+    
+    ms2
+    
+  )
+
+  if(basicFilterValues$min_filtering_type == "fixed"){
+    sps_filtered <- filterIntensity(
+      sps_filtered, intensity = basicFilterValues$fixed_threshold 
+    )
+  }
+  else if(basicFilterValues$min_filtering_type == "percent"){
+    sps_filtered <- filterIntensity(sps_filtered, intensity = function(x, ...) x > max(x, na.rm = TRUE) * 0.01)
+  }
+  
   return(sps_filtered)
   
 
@@ -400,6 +424,7 @@ cleaning_ref<- function(ms2){
 #' @return returns the possible masses
 #'
 #' @import MetaboCoreUtils
+#' @import stringr
 #' @noRd
 calc_lipid_chain_masses <- function(ld){
   
@@ -407,10 +432,13 @@ calc_lipid_chain_masses <- function(ld){
     lapply(ld$modifications, \(x) if (x$optional) x$formula),
     use.names = FALSE
   )
+  optional_mods <- optional_mods[!optional_mods == "" && !is.null(optional_mods)]
   required_mods <- unlist(
     lapply(ld$modifications, \(x) if (!x$optional) x$formula),
     use.names = FALSE
   )
+  required_mods <- required_mods[!required_mods == "" && !is.null(required_mods)]
+  
   mods_combinations <- unlist(
     lapply(
       0:length(optional_mods),
@@ -429,14 +457,18 @@ calc_lipid_chain_masses <- function(ld){
   
   mod_H_correction <- length(required_mods)
   
-  combos$H <- 2 * combos$C - 2 * combos$DB - mod_H_correction
+  combos$H <- (2 * combos$C) - (2 * combos$DB) - mod_H_correction
   
-
+  
   combos$formula <- mapply(
     function(C, H, optional_mod) {
+      print(paste0(c(optional_mod, required_mods)))
+      mod_DB <- stringr::str_count( paste0(c(optional_mod, required_mods)), "=")
+      print(mod_DB)
+      modDB <- ifelse(!is.na(mod_DB), mod_DB, 0) 
       paste0(
         "C", C,
-        "H", H - length(optional_mod) +1,
+        "H", H - length(optional_mod) +1 - modDB,
         paste0(optional_mod, collapse = ""),
         paste0(required_mods, collapse = "")
       )
@@ -445,7 +477,7 @@ calc_lipid_chain_masses <- function(ld){
     combos$H,
     combos$optional_mod
   )
-    
+  combos$formula <- gsub("=", "", combos$formula)
   combos$mass <- calculateMass(combos$formula)
   
   if(is.null(optional_mods))combos[c("formula", "mass")]

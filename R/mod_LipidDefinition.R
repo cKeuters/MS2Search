@@ -114,7 +114,8 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
         ui = div(
           id = ns(paste0("chain_wrap_", cid)),
           chain_block_ui(ns(child_id), init_chain)
-        )
+        ),
+        immediate = TRUE
       )
       
       chain_modules[[cid]] <- chain_block_server(child_id, cid, init_chain, remove_chain) 
@@ -126,7 +127,6 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       req(load_trigger())
       chains_to_load <- load_trigger()
       cat("load_trigger fired, n chains:", length(chains_to_load), "\n")
-      
       isolate({
         for (chain in chains_to_load) {
           tryCatch({
@@ -204,12 +204,12 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     cat("chain_block_server id =", server_id, "\n")
     
     chain_state <- reactiveValues(
-      C_min = 10,
-      C_max = 20,
-      DB_min = 0,
-      DB_max = 1,
+      C_min = init_chain$C_min,
+      C_max = init_chain$C_max,
+      DB_min = init_chain$DB_min,
+      DB_max = init_chain$DB_max,
       priority = "basic",
-      modifications = list()
+      modifications = init_chain$modifications
     )
     mod_ids <- reactiveVal(1)
     
@@ -304,8 +304,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
       insertUI(
         selector = paste0("#", ns(target)),
         where = "beforeEnd",
-        ui = mod_chip_ui(ns, mid, init_mod),
-        immediate = TRUE
+        ui = mod_chip_ui(ns, mid, init_mod)
       )
       register_mod_observers(mid, init_mod)
       mod_ids(mod_ids() + 1)
@@ -313,11 +312,9 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     
     isolate({
       init_mods <- init_chain$modifications
-      for (i in seq_along(init_mods)) {
-        mid <- paste0("mods_", i)
-        register_mod_observers(mid, init_mods[[i]])
-      }
-      mod_ids(length(init_mods))
+      for (init_mod in init_mods) {
+        add_mod_to_ui(init_mod)
+        }
     })
     
     

@@ -73,6 +73,10 @@ app_server <- function(input, output, session) {
     n_peaks_min = 0,
     n_peaks_max = 1000,
     n_peaks_priority = "required",
+    min_filtering_type = "fixed",
+    fixed_threshold = 20,
+    percent_treshold = 1,
+    noiseFiltering_method = "MAD",
     tolerance_ppm = 10,
     minimum_dalton = 0.01
   )
@@ -182,7 +186,19 @@ app_server <- function(input, output, session) {
   observeEvent(input$n_peaks_priority, {
     basicFilterValues$n_peaks_priority <- input$n_peaks_priority
   })
-  
+  #Noise filtering
+  observeEvent(input$fixedThreshold_value, {
+    basicFilterValues$fixed_threshold <- input$fixedThreshold_value
+  })
+  observeEvent(input$percentThreshold_value, {
+    basicFilterValues$percent_threshold <- input$percentThreshold_value
+  })
+  observeEvent(input$radio_minIntensity, {
+    basicFilterValues$min_filtering_type <- input$radio_minIntensity
+  })
+  observeEvent(input$radio_FilteringMethod, {
+    basicFilterValues$noiseFiltering_method <- input$radio_FilteringMethod
+  })
   #Tools setting events
   observeEvent(input$LipidIN_active, {
     ToolSettings$LipidIN <- input$LipidIN_active
@@ -371,6 +387,10 @@ app_server <- function(input, output, session) {
     basicFilterValues$n_peaks_min <- bf$n_peaks_min
     basicFilterValues$n_peaks_max <- bf$n_peaks_max
     basicFilterValues$n_peaks_priority <- bf$n_peaks_priority
+    basicFilterValues$min_filtering_type <- bf$min_filtering_type
+    basicFilterValues$fixed_threshold <- bf$fixed_threshold
+    basicFilterValues$percent_treshold <- bf$percent_treshold 
+    basicFilterValues$noiseFiltering_method  <- bf$noiseFiltering_method 
     basicFilterValues$tolerance_ppm <- bf$tolerance_ppm
     basicFilterValues$minimum_dalton <- bf$minimum_dalton
     
@@ -824,38 +844,9 @@ app_server <- function(input, output, session) {
           ")),
       createAnalysisLegend(),
       fluidRow(
-        # column(
-        #   width = 4,
-        #   div(class = "card analysis-card",
-        #       tags$label(
-        #         class = "switch",
-        #         tags$input(
-        #           type = "checkbox",
-        #           id = "LipidIN_active",
-        #           checked = if (ToolSettings$LipidIN) "checked" else NULL
-        #         ),
-        #         tags$span(class = "slider")
-        #       ),
-        #       div(class = if (!isTRUE(input$LipidIN_active)) "disabled-div" , 
-        #           div(class = "card-title", "LipidIN",
-        #               createInfoI("LipidIN_info","LipidIN is a tool")),
-        #           createPriorityRadioButtons("LipidIN_priority", ToolSettings$LipidIN_priority),
-        #           tags$details(
-        #             tags$summary(
-        #               class = "advanced-settings",
-        #               "Advanced Settings"
-        #             ),
-        #             
-        #             br(),
-        #             numericInput("LipidIN_ppm1", "ppm 1", value = ToolSettings$LipidIN_ppm1),
-        #             numericInput("LipidIN_ppm2", "ppm 2", value = ToolSettings$LipidIN_ppm2)
-        #           )
-        #           
-        #       )
-        #   ),
-        # ),
+
         column(
-          width = 8,
+          width = 6,
           div(
             class = "card analysis-card",
             div(class = "card-title", "Basic filters"),
@@ -903,57 +894,62 @@ app_server <- function(input, output, session) {
             
 
           ),
-        column(width = 4,
+        column(width = 6,
                div(
                  class = "card analysis-card",
-                 div(class = "card-title", "Intensity Filtering"),
-               
-               div(                  
-                 div(
-                   class = "filter-group",
-                   h5("Filtering MS2 Spectra"),
-                   div(class = "input-block",
-                       numericInput("min_intensity", "Minimum intensity treshold", 20)),
-                   div(class = "input-block",
-                       numericInput("percent_maxPeak", "Percent from max Peak", 1))
-                 ))
-               
-               )
-        
-      
-        )#,
-        # column(
-        #   width = 4,
-        #   div(class = "card analysis-card",
-        #       tags$label(
-        #         class = "switch",
-        #         tags$input(
-        #           type = "checkbox",
-        #           id = "DreaMS_active",
-        #           checked = if (ToolSettings$DreaMS) "checked" else NULL
-        #         ),
-        #         tags$span(class = "slider")
-        #       ),
-        #       div(class = if (!isTRUE(input$DreaMS_active)) "disabled-div" , 
-        #           div(class = "card-title", "DreaMS",
-        #               createInfoI("DreaMS_info","DreaMS is a tool")),
-        #           
-        #           createPriorityRadioButtons("DreaMS_priority", ToolSettings$DreaMS_priority),
-        #           
-        #           tags$details(
-        #             tags$summary(
-        #               class = "advanced-settings",
-        #               "Advanced Settings"
-        #             ),
-        #             
-        #             br(),
-        #             numericInput("ppm1", "ppm 1", value = 10),
-        #             numericInput("ppm2", "ppm 2", value = 50)
-        #           )
-        #       )
-        #   )
-        # )
+                 div(class = "card-title", "MS2 Noise Filtering"),
+                 div(                  
+                   class = "basic-filter-container",
 
+                 div(
+                   class = "filter-group-radio",
+                   
+                   div(
+                     class = "filter-row",
+                     div(class = "radio-group-inline",
+                     radioButtons(
+                       "radio_minIntensity",
+                       label = "Minimum MS2 Intensity",
+                       selected = basicFilterValues$min_filtering_type,
+                       choiceNames = c("Fixed Threshold",
+                                   "Percent from max Peak",
+                                   "None"),
+                       choiceValues = c("fixed", "percent", "none")
+                     )),
+                     
+                     conditionalPanel(
+                       "input.radio_minIntensity == 'fixed'",
+                       numericInput(
+                         "fixedThreshold_value",
+                         "Minimum intensity threshold",
+                         basicFilterValues$fixed_threshold
+                       )
+                     ),
+                     
+                     conditionalPanel(
+                       "input.radio_minIntensity == 'percent'",
+                       numericInput(
+                         "percentThreshold_value",
+                         "Percent from max Peak",
+                         basicFilterValues$percent_treshold,
+                         min = 0,
+                         max = 100
+                       )
+                     )
+                   )
+                 ),
+                 div(
+                   class = "filter-group-radio",
+                   div(class = "radio-group-inline",
+                   radioButtons("radio_FilteringMethod", label = "MsCoreUtils Filtering Method",
+                                choiceNames = c(" MAD (median absolute deviation)", "Friedman’s SuperSmoother", "Weighted Moving Average", "None"),
+                                choiceValues = c("MAD", "SuperSmoother", "wma", "none"),
+                                selected = basicFilterValues$noiseFiltering_method)
+                 )))
+
+               )
+      
+        )
       )
     )
     

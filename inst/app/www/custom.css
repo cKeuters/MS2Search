@@ -93,7 +93,7 @@
 
 .filter-group {
   flex: 1;
-  padding: 15px;
+  padding: 5px;
   align-items: center;
   text-align: center;
 }
@@ -1154,3 +1154,29 @@ table.dataTable tbody tr.selected {
   gap : 10px;
   align-items: center; 
 }
+
+
+/* Zeilen innerhalb einer Filtergruppe */
+
+.filter-group-radio {
+  flex: 1;
+  padding: 5px;
+  text-align: left;
+  min-width: 280px;
+}
+
+/* RadioButtons */
+.radio-group-inline {
+  margin-bottom: 1px;
+}
+
+
+.radio-group-inline .radio {
+  margin-top: 4px;
+}
+
+.radio-group-inline .control-label {
+  display: inline-block;
+  padding-bottom: 10px;
+}
+
