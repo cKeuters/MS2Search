@@ -1180,3 +1180,126 @@ table.dataTable tbody tr.selected {
   padding-bottom: 10px;
 }
 
+:root {
+  --val-h: 28px;   /* one height for buttons, name and adjustment */
+}
+
+/* One validation = one row, everything vertically centered */
+.validation-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 2px 0;
+}
+
+.validation-header { display: contents; }
+.validation-header .formula-label { white-space: nowrap; }
+
+/* Remove all bottom margins that Shiny/Bootstrap add to inputs */
+.validation-block .shiny-input-container,
+.validation-block .form-group,
+.validation-block .selectize-control {
+  margin: 0;
+}
+.validation-block .shiny-input-container:not(.shiny-input-container-inline) {
+  width: auto;
+}
+
+/* Buttons: same height as the inputs, no vertical offset */
+.validation-block .btn {
+  height: var(--val-h);
+  line-height: 1;
+  padding: 0 8px;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.validation-header .btn-remove-validation {
+  order: 99;
+  margin-left: auto;
+}
+
+/* Editable name: looks like plain text, no border */
+.validation-block .validation-name .form-control {
+  height: var(--val-h);
+  width: 150px;
+  padding: 0 4px;
+  border: none;
+  border-radius: 3px;
+  box-shadow: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+}
+.validation-block .validation-name .form-control:hover,
+.validation-block .validation-name .form-control:focus {
+  background: rgba(0, 0, 0, 0.06);   /* subtle hint that it is editable */
+  outline: none;
+  box-shadow: none;
+}
+/* Optional, newer browsers: name field grows with its text */
+.validation-block .validation-name .form-control {
+  field-sizing: content;
+  min-width: 60px;
+}
+
+/* Component selectors: no border, only the arrow */
+.validation-block [id$="selector_container"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+}
+.validation-block [id$="selector_container"] .shiny-input-container {
+  width: auto;
+  min-width: 0;
+}
+.validation-block .selectize-control { width: auto; }
+.validation-block .selectize-input,
+.validation-block .selectize-input.focus,
+.validation-block .selectize-input.input-active {
+  height: var(--val-h);
+  min-height: var(--val-h);
+  display: flex;
+  align-items: center;
+  padding: 0 22px 0 4px !important;   /* space on the right for the arrow */
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  font: inherit;                       /* same font as the precursor components */
+  color: inherit;
+  cursor: pointer;
+}
+.validation-block .selectize-input:hover {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 3px;
+}
+.validation-block .selectize-input > input { display: none !important; }  /* no typing cursor */
+.validation-block .selectize-control.single .selectize-input::after {
+  right: 6px;                          /* the arrow stays visible */
+}
+.validation-block .selectize-dropdown {
+  min-width: 100px;
+  z-index: 1000;
+}
+
+/* Individual adjustment: same height as the buttons */
+.validation-block .adjustment-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.validation-block .adjustment-row .shiny-input-container { width: 170px; }
+.validation-block .adjustment-row .form-control {
+  height: var(--val-h);
+  padding: 0 8px;
+  font-size: 0.9em;
+  box-sizing: border-box;
+}
+.validation-block .adjustment-icon { opacity: 0.6; }
+
+.validation-block > .formula-term { white-space: nowrap; }

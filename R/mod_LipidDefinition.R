@@ -22,7 +22,6 @@ mod_LipidDefinition_ui <- function(id) {
         actionButton(ns("add_chain"), "+ Chain", class = "btn-add-chain")
       ),
       div(id = ns("chains_container"), class = "chains-container"),
-      # Validation
       tags$div(
         class = "precursor-validation",
         tags$details(
@@ -30,40 +29,17 @@ mod_LipidDefinition_ui <- function(id) {
             class = "validation-summary",
             icon("flask"), "Validation: Precursor m/z"
           ),
-          tags$div(
-            class = "formula-box",
-            tags$span(class = "formula-label", "precursor m/z ="),
-            tags$span(class = "formula-term", "backbone"),
-            tags$span(class = "formula-op", "+"),
-            tags$span(
-              class = "formula-term",
-              "C", tags$sub("carbonsInAllChains")
-            ),
-            tags$span(class = "formula-op", "+"),
-            tags$span(
-              class = "formula-term",
-              "H", tags$sub(
-                HTML("carbonsInAllChains&times;2 &minus; DBEinAllChains&times;2 &minus; n_modifications")
-              )
-            ),
-            tags$span(class = "formula-op", "+"),
-            tags$span(class = "formula-term", "modifications"),
-            tags$span(class = "formula-op", "+"),
-            tags$div(
-              class = "adjustment-row",
-              icon("pen", class = "adjustment-icon"),
-              textInput(
-                ns("chain_validation"), NULL,
-                placeholder = "individual adjustment"
-              )
-            )
-          )
+          div(id = ns("validation_container")),
+          actionButton(ns("add_validation"), "Add validation")
         )
       )
+     
     )
   )
   
 }
+
+
 
 #' LipidDefinition Server Functions
 #'
@@ -76,6 +52,7 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     chain_modules <- reactiveValues()
     chain_ids <- reactiveVal(character(0))
     next_chain_id <- reactiveVal(1)
+    
     
     observeEvent(input$headgroup, {
       head_group(input$headgroup)
@@ -95,6 +72,7 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       cat(paste("remove chain", cid))
       removeUI(selector = paste0("#", ns(paste0("chain_wrap_", cid))))
       chain_modules[[cid]] <- NULL
+
       chain_ids(setdiff(chain_ids(), cid))
     }
     
@@ -119,13 +97,54 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       )
       
       chain_modules[[cid]] <- chain_block_server(child_id, cid, init_chain, remove_chain) 
+      #validation_modules[[1]]$components <- c(validation_modules[[1]]$components, child_id)
       next_chain_id(next_chain_id() + 1)
       
     }
     
+    
+    validation_modules <- list()        
+    validation_ids  <- reactiveVal(character(0))
+    next_validation_id <- reactiveVal(1)
+    
+    remove_validation <- function(vid) {
+      vid <- as.character(vid)
+      removeUI(selector = paste0("#", ns(paste0("validation_wrap_", vid))),
+               immediate = TRUE)
+      validation_modules[[vid]] <<- NULL
+      validation_ids(setdiff(validation_ids(), vid))
+    }
+    
+    add_validation_to_ui <- function(init_validation, fixed = FALSE) {
+      vid <- as.character(isolate(next_validation_id()))
+      validation_ids(c(isolate(validation_ids()), vid))
+      child_id <- paste0("validation_", vid)
+      
+      insertUI(
+        selector = paste0("#", ns("validation_container")),
+        where = "beforeEnd",
+        ui = div(id = ns(paste0("validation_wrap_", vid)),      # <- unique prefix
+                 validationUI(ns(child_id), init_validation, fixed)),
+        immediate = TRUE
+      )
+      validation_modules[[vid]] <<- validationServer(
+        child_id, init_validation, chain_ids, fixed, on_remove = if(!fixed) remove_validation(vid) else NULL)
+      next_validation_id(as.numeric(vid) + 1)
+    }
+
+    
+    # always-present precursor validation
+    session$onFlushed(function() {
+      isolate(add_validation_to_ui(list(name = "precursor validation"), fixed = TRUE))
+    }, once = TRUE)
+    
+    observeEvent(input$add_validation, {
+      add_validation_to_ui(list(name = "validation", selectedComponents = list()))
+    })
+    
     observeEvent(load_trigger(), {
       req(load_trigger())
-      chains_to_load <- load_trigger()
+      chains_to_load <- load_trigger()$chains
       cat("load_trigger fired, n chains:", length(chains_to_load), "\n")
       isolate({
         for (chain in chains_to_load) {
@@ -138,11 +157,20 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       })
     }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
-    reactive({
-      ids <- chain_ids()
-      if (length(ids) == 0) return(list())
-      lapply(ids, function(cid) chain_modules[[cid]]())
-
+    reactive({list(
+      chains = ({
+        ids <- chain_ids()
+        if (length(ids) == 0) return(list())
+        lapply(ids, function(cid) chain_modules[[cid]]())
+      }),
+      validations = ({
+        if (length(validation_ids()) == 0) return(list())
+        lapply(validation_ids(), function(v){
+          validation_modules[[v]]()
+        })
+      })
+      
+    )
     })
     
   })
@@ -417,6 +445,96 @@ infoModalButtonServer <- function(id, df, title = NULL) {
   })
 }
 
+validationUI <- function(id, validation, fixed = FALSE) {
+  ns <- NS(id)
+  div(
+    class = "validation-block",
+    div(class = "validation-header",
+        if(fixed){
+          tags$span(class = "formula-label", paste(validation$name, "="))
+        }else{
+          tagList(textInput(ns("val_name"), label = NULL,
+                            value = validation$name,
+                            placeholder = "Validation name",
+                            width = "auto") |>
+            tagAppendAttributes(class = "validation-name"),
+            tags$span(class = "formula-label", "="))
+        }),
+    
+    if (!fixed) tagList(
+      div(id = ns("selector_container")),
+      actionButton(ns("add_component"), "+")
+    ) else tags$span(class = "formula-term", "Backbone + all chains"),
+    div(
+      class = "adjustment-row",
+      icon("pen", class = "adjustment-icon"),
+      textInput(ns("adjustment"), label = NULL,
+                value = validation$adjustments %||% "",
+                placeholder = "individual adjustment")
+    ),
+    if(!fixed){
+      actionButton(ns("remove_validation"), label = NULL, icon = icon("trash"), class = "btn-remove-validation")
+    }
+  )
+}
+
+validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_remove = NULL) {
+  moduleServer(id, function(input, output, session) {
+    ns <- session$ns
+    sel_ids  <- reactiveVal(character(0))
+    next_sel <- reactiveVal(1)
+    
+    add_component_to_ui <- function(selection = NULL) {
+      i <- isolate(next_sel())
+      next_sel(i + 1)
+      sel_ids(c(isolate(sel_ids()), as.character(i)))
+      insertUI(
+        selector = paste0("#", ns("selector_container")),
+        where = "beforeEnd",
+        ui = selectInput(ns(paste0("sel_", i)), label = NULL,
+                         choices = c("Backbone", isolate(chain_ids())),
+                         selected = selection),
+        immediate = TRUE
+      )
+    }
+    
+    if (!fixed) {
+      observeEvent(input$add_component, add_component_to_ui())
+      for (com in init_validation$selectedComponents) add_component_to_ui(com)
+      
+      # keep the choices in sync when chains are added/removed
+      observe({
+        choices <- c("Backbone", chain_ids())
+        for (i in sel_ids()) {
+          cur <- isolate(input[[paste0("sel_", i)]])
+          updateSelectInput(session, paste0("sel_", i), choices = choices,
+                            selected = if (!is.null(cur) && cur %in% choices) cur else NULL)
+        }
+      })
+    }
+    
+    components <- reactive({
+      if (fixed) {
+        c("Backbone", chain_ids())
+      } else {
+        unique(unlist(lapply(sel_ids(), function(i) input[[paste0("sel_", i)]])))
+      }
+    })
+    
+    observeEvent(input$remove_validation,{
+      if(is.function(on_remove)) on_remove()
+    }, ignoreInit = TRUE, once = TRUE)
+    
+    reactive(list(
+      name = input$val_name %||% init_validation$name,
+      adjustments = input$adjustment,
+      components = components()
+    ))
+  })
+}
+
+
+
 
 
 #' Baut das SVG-Markup fuer eine Acylkette
@@ -527,3 +645,8 @@ empty_chain <- list(
   modifications = list()
 )
 
+empty_validation <- list(
+  name = "enter name",
+  adjustments = NULL,
+  selectedComponents = list()
+)

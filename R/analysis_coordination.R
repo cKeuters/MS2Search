@@ -87,7 +87,7 @@ createSpectradf <- function(operations, featureTableId){
 #' @import SpectraQL
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
-  #settings_list <- load_project("path/data/braabrka.zip")$settings_list
+  #settings_list <- load_project("path/data/newValidations.zip")$settings_list
 
   #-----------------------------------------------------------------------------
   # Basic filters and checks
@@ -227,7 +227,7 @@ run_analysis <- function(settings_list, sp, add_log){
     peaks_data <- peaksData(sp_cleaned)
 
     chain_id <- 1
-    for(ld in settings_list$lipid_definition){
+    for(ld in settings_list$lipid_definition$chains){
       masses <- calc_lipid_chain_masses(ld)$mass
       
       retained_vector <- unlist(lapply(peaks_data, findMZpeak,
@@ -246,6 +246,41 @@ run_analysis <- function(settings_list, sp, add_log){
       }
       
     }
+    
+    #-----------------------------------------------------------------------------
+    # validation filters
+    #-----------------------------------------------------------------------------
+    if(length(settings_list$lipid_definition$chains) > 0){
+      for(val in settings_list$lipid_definition$validations){
+        
+        chain_ids <- as.numeric(val$components)
+        
+        components <- lapply(chain_ids[!is.na(chain_ids)], function(id) calc_lipid_chain_masses(settings_list$lipid_definition$chains[[id]])$mass)
+        combos <- do.call(expand.grid, components)
+
+        headgroupMass <- if(is.null(settings_list$chain_info$headgroup)||settings_list$chain_info$headgroup == "") 0 else calculateMass(settings_list$chain_info$headgroup)
+        masses <- rowSums(combos) + if("Backbone" %in% val$components) headgroupMass else 0
+        retained_vector <- unlist(lapply(peaks_data, findMZpeak,
+                                         values = masses, 
+                                         tol_ppm = settings_list$basicFilters$tolerance_ppm, 
+                                         tol_mz = settings_list$basicFilters$minimum_dalton))
+        
+        add_log(paste0("Spectra after ",val$name,": ", sum(retained_vector)))
+        results[val$name] <- retained_vector
+        
+        # if(ld$priority == "required"){
+        #   
+        #   results <- results[retained_vector,]
+        #   sp <- sp[retained_vector,]
+        #   sp_cleaned <- sp_cleaned[retained_vector,]
+        # }
+        
+        
+      }
+      
+    }
+    
+    
   
   #------------------------- creating dataframe  ----------------------
     
@@ -260,7 +295,8 @@ run_analysis <- function(settings_list, sp, add_log){
       priority_weights[settings_list$basicFilters$rt_priority],
       priority_weights[settings_list$basicFilters$n_peaks_priority],
       sapply(settings_list$specific_filters, \(x) priority_weights[x$rule_priority]),
-      sapply(settings_list$lipid_definition, \(x) priority_weights[x$priority])
+      sapply(settings_list$lipid_definition$chains, \(x) priority_weights[x$priority]),
+      sapply(settings_list$lipid_definition$validations, \(x) 1)
     )
     priorities <- unname(sapply(priorities, function(x) if (length(x) == 0) 0 else x))
     
@@ -462,13 +498,13 @@ calc_lipid_chain_masses <- function(ld){
   
   combos$formula <- mapply(
     function(C, H, optional_mod) {
-      print(paste0(c(optional_mod, required_mods)))
       mod_DB <- stringr::str_count( paste0(c(optional_mod, required_mods)), "=")
-      print(mod_DB)
-      modDB <- ifelse(!is.na(mod_DB), mod_DB, 0) 
+      modDB <- ifelse((!is.na(mod_DB) && length(mod_DB) != 0), mod_DB, 0) 
+      mod_len <- if(!is.null(optional_mod)) length(optional_mod) else 0
+      
       paste0(
         "C", C,
-        "H", H - length(optional_mod) +1 - modDB,
+        "H", H - mod_len - modDB,
         paste0(optional_mod, collapse = ""),
         paste0(required_mods, collapse = "")
       )

@@ -314,7 +314,7 @@ app_server <- function(input, output, session) {
         basicFilterValues = reactiveValuesToList(basicFilterValues),
         toolSettings = reactiveValuesToList(ToolSettings),
         cards   = all_cards_data(), 
-        lipid_definition = all_chain_data(),
+        lipid_definition = lipid_definition(),
         headgroup = head_group())
       create_brkrrba_file(settings_list, file)
     }
@@ -343,7 +343,8 @@ app_server <- function(input, output, session) {
         state = reactiveValuesToList(state),
         basicFilterValues = reactiveValuesToList(basicFilterValues),
         toolSettings = reactiveValuesToList(ToolSettings),
-        cards   = all_cards_data(), lipid_definition = all_chain_data(),
+        cards   = all_cards_data(), 
+        lipid_definition = lipid_definition(),
         headgroup = head_group()),
         analysis_results$results,
         analysis_results$spectra,
@@ -476,7 +477,7 @@ app_server <- function(input, output, session) {
   
   lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1", lipid_load_trigger, head_group)
   
-  all_chain_data <- reactive({
+  lipid_definition <- reactive({
     lipidDefinitionServer()
 
   })
@@ -506,7 +507,7 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
       cards   = all_cards_data(), 
-      lipid_definition = all_chain_data(),
+      lipid_definition = lipid_definition(),
       headgroup = head_group())
     plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list)
     
@@ -543,7 +544,7 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings      = reactiveValuesToList(ToolSettings),
       cards             = all_cards_data(),
-      lipid_definition   = all_chain_data(),
+      lipid_definition   = lipid_definition(),
       headgroup         = head_group()
     )
     
