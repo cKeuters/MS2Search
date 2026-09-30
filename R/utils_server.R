@@ -414,21 +414,96 @@ create_brkrrba_file <- function(settings_list, file_path){
 # Plotting with plotly
 #-------------------------------------------------------------------------------
 
+#' @noRd
+neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
+                                        tol = 0.01, include_precursor = TRUE) {
+  mz  <- unlist(spectrum$mz)
+  int <- unlist(spectrum$intensity)
+  
+  # candidate partner peaks (optionally the precursor as well)
+  cand_mz  <- mz
+  cand_int <- int
+  if (include_precursor) {
+    cand_mz  <- c(cand_mz,  spectrum$precursorMz)
+    cand_int <- c(cand_int, max(int))
+  }
+  
+  row <- results[results$FEATURE_ID == feature_id, , drop = FALSE]
+  if (nrow(row) == 0) return(NULL)
+
+  nm <- names(results)
+  first <- which(nm == "peakCount_filter") + 1
+  last  <- which(nm == "score") - 1
+  if (length(first) == 0 || length(last) == 0 || first > last) return(NULL)
+  filter_cols <- nm[first:last]
+  
+  rule_names <- make.names(vapply(rules, function(r) as.character(r$label)[1], character(1)))
+  
+  out <- list()
+  for (col in filter_cols) {
+    cell <- row[[col]][1]
+    val  <- paste(unlist(cell), collapse = " ")
+    if (is.na(val) || !nzchar(val) || val == "NA") next
+
+    r_idx <- which(rule_names == col)
+    if (length(r_idx) == 0) r_idx <- which(rule_names == sub("\\.[0-9]+$", "", col))
+    if (length(r_idx) == 0) next         
+    rule <- rules[[r_idx]]
+    
+    label    <- rule$label
+    
+    found    <- as.numeric(regmatches(val, gregexpr("[0-9]+\\.?[0-9]*", val))[[1]])
+
+    masses <- vapply(rule$entries, function(e) {
+      resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
+    }, numeric(1))
+    searched <- abs(as.numeric(masses[!is.na(masses)]))
+  
+    
+    
+    for (f in found) {
+      j <- which.min(abs(mz - f))            # snap to the real found peak
+      if (abs(mz[j] - f) > tol) next
+      
+      for (m in searched) {
+        for (target in c(mz[j] - m, mz[j] + m)) {   # partner below or above
+          d <- abs(cand_mz - target)
+          p <- which.min(d)
+          if (d[p] > tol) next
+          if (abs(cand_mz[p] - mz[j]) < tol) next    # skip self
+          
+          out[[length(out) + 1]] <- data.frame(
+            mz_found = mz[j],      int_found = int[j],
+            mz_partner = cand_mz[p], int_partner = cand_int[p],
+            mass = m, delta = abs(cand_mz[p] - mz[j]), label = label
+          )
+        }
+      }
+    }
+  }
+  if (length(out) == 0) return(NULL)
+  res <- do.call(rbind, out)
+  # remove duplicates (same pair found from both ends)
+  key <- paste(pmin(res$mz_found, res$mz_partner),
+               pmax(res$mz_found, res$mz_partner), res$mass)
+  res[!duplicated(key), , drop = FALSE]
+}
+
 #' @import plotly
 #' @noRd
 plottingSpectra <- function(sp, feature_id, settings_list, results){
   rules <- settings_list$specific_filters
-  spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID") 
+  spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID")
   mz <- unlist(spectrum$mz)
   intensities <- unlist(spectrum$intensity)
   filtered_spectrum <- cleaning_ref(spectrum, settings_list$basicFilters)
   mz_filtered <- unlist(filtered_spectrum$mz)
-
+  
   filter_results <- useRulesOnSpectrum(spectrum, settings_list)
   filter_results[["Intensity Filter"]] <- setdiff(mz, mz_filtered)
-
+  
   filter_priorities <- unlist(lapply(rules, function(x){x$priority}))
-  if(!is.null(filter_results[["Intensity Filter"]]))filter_priorities <- c(filter_priorities, "low")
+  if(!is.null(filter_results[["Intensity Filter"]])) filter_priorities <- c(filter_priorities, "low")
   
   category <- resolve_filter_category(mz = mz,
                                       filter_results = filter_results,
@@ -439,41 +514,84 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
   colors["none"] <- "#404040"
   colors["Intensity Filter"] <- "#D3D3D3"
   
-  library(plotly)
+  # ---- neutral losses -> shapes + annotations (hidden by default) ----
+  nl <- neutral_losses_from_results(results, feature_id, rules, spectrum, tol = 0.1)
+  shapes <- list(); annots <- list()
+  for (i in seq_len(nrow(nl))) {
+    y <- max(nl$int_found[i], nl$int_partner[i])  
+    col <- unname(colors[nl$label[i]])            
+    if (is.na(col)) col <- "black"
+    
+    shapes[[i]] <- list(
+      type = "line", xref = "x", yref = "y",
+      x0 = nl$mz_found[i],   y0 = y,
+      x1 = nl$mz_partner[i], y1 = y,
+      color = category, colors = colors,
+      line = list(color = col, width = 1.5, dash = "dot"),
+      visible = FALSE
+    )
+    annots[[i]] <- list(
+      x = (nl$mz_found[i] + nl$mz_partner[i]) / 2,
+      y = y, yshift = 8,
+      xref = "x", yref = "y",
+      text = nl$mass[i],
+      showarrow = FALSE, font = list(size = 10, color = col),
+      visible = FALSE
+    )
+  }
+  n <- length(shapes)
+  set_vis <- function(v) {
+    out <- list()
+    for (i in seq_len(n)) {
+      out[[sprintf("shapes[%d].visible", i - 1)]]      <- v
+      out[[sprintf("annotations[%d].visible", i - 1)]] <- v
+    }
+    out
+  }
   
-  # 1. Initialize an empty plotly base canvas
   fig <- plot_ly() %>%
-    # 2. Draw perfectly straight vertical spikes as vector segments
     add_segments(
-      x = unlist(spectrum$mz), 
-      xend = unlist(spectrum$mz),
-      y = 0, 
-      yend = unlist(spectrum$intensity),
-      color = category,
-      colors = colors,
-      text = paste0("m/z: ", unlist(spectrum$mz), "<br>Intensity: ", unlist(spectrum$intensity)),
-      hoverinfo = "text",
-      showlegend = TRUE
+      x = mz, xend = mz, y = 0, yend = intensities,
+      color = category, colors = colors,
+      text = paste0("m/z: ", mz, "<br>Intensity: ", intensities),
+      hoverinfo = "text", showlegend = TRUE
     ) %>%
-    # 3. Optimize the layout interaction mechanics
-    layout(
-      hovermode = "x",          # Pinpoints the nearest line on the X axis instantly
-      xaxis = list(title = "m/z"),
-      yaxis = list(title = "Intensity")
-    )%>%
     add_segments(
       x = spectrum$precursorMz, xend = spectrum$precursorMz,
-      y = 0, yend = max(unlist(spectrum$intensity)),
+      y = 0, yend = max(intensities),
       line = list(color = "red", dash = "dash", width = 1),
-      name = "Precursor",
-      inherit = FALSE
-      )
+      name = "Precursor", inherit = FALSE
+    ) %>%
+    layout(
+      title = paste("Spectrum", feature_id),
+      hovermode = "x",
+      xaxis = list(title = "m/z"),
+      yaxis = list(title = "Intensity"),
+      shapes = shapes,
+      annotations = annots,
+      margin = list(b = 110)
+    )
   
-  fig <- fig %>% layout(title = paste("Spectum", feature_id),
-                        xaxis = list(title = "m/z"),
-                        yaxis = list(title = "intensity"))
+  if (n > 0) {
+    fig <- fig %>% layout(
+      updatemenus = list(list(
+        type = "buttons", direction = "right",
+        x = 0, y = -0.2, xanchor = "left", yanchor = "top",
+        active = -1,
+        buttons = list(
+          list(
+            label  = "Show neutral losses",
+            method = "relayout",
+            args   = list(c(set_vis(TRUE),  list("updatemenus[0].buttons[0].label" = "Hide neutral losses"))),
+            args2  = list(c(set_vis(FALSE), list("updatemenus[0].buttons[0].label" = "Show neutral losses")))
+          )
+        )
+      ))
+    )
+  }
   fig
-      }
+}
+
 
 
 useRulesOnSpectrum <- function(spectrum, settings_list){

@@ -1013,7 +1013,7 @@ app_server <- function(input, output, session) {
       
     # Row 2: found values
     row2 <- vapply(res, function(x) {
-      if (is.list(x)) paste(round(unlist(x), 3), collapse = ", ") else ""
+      if (is.list(x)) paste(round(as.numeric(unlist(x)), 3), collapse = ", ") else ""
     }, character(1))
     df[2,] <- row2
     
@@ -1022,9 +1022,10 @@ app_server <- function(input, output, session) {
     ld <- lipid_definition()
     chain_calcs <- lapply(ld$chains, calc_lipid_chain_masses)
     chain_cols  <- grep("chain", names(res))
+    
     for (k in seq_len(min(length(chain_cols), length(chain_calcs)))) {
       cn       <- names(res)[chain_cols[k]]
-      found    <- unlist(res[[cn]])
+      found    <- as.numeric(unlist(res[[cn]]))
       all_data <- chain_calcs[[k]]
       
       tol <- max(max(found) * tolerance_ppm / 1000000, minimum_dalton)
