@@ -269,7 +269,7 @@ app_server <- function(input, output, session) {
     if(MS2file_name() == ""){
       showNotification("No MS2 data selected", type="warning")
     }else{
-      if(input$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
+      if(state$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
       state$screen <- "Analysis"
     }
 
@@ -299,6 +299,18 @@ app_server <- function(input, output, session) {
       
       res <- analysis_results$results
       res$selected <- checked_features()
+      
+      convert_list <- function(x) {
+        if (is.list(x)) {
+          vals <- sapply(x, function(y) {
+            if (length(y) == 0) "" else paste(y, collapse = "/")
+          })
+        } else {
+          x
+        }
+      }
+      res <- lapply(res, convert_list)
+      
       write.csv(res, file, row.names = FALSE)
     }
   )
@@ -336,6 +348,7 @@ app_server <- function(input, output, session) {
   
   output$export_project <- downloadHandler(
     filename = function() {
+      if(input$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
       paste0(state$project_name, ".zip")
     },
     content = function(file) {
@@ -509,15 +522,8 @@ app_server <- function(input, output, session) {
       cards   = all_cards_data(), 
       lipid_definition = lipid_definition(),
       headgroup = head_group())
-    plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list)
+    plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list, analysis_results$results)
     
-  })
-  
-  output$spectrum_plot <- renderPlot({
-    req(nrow(analysis_results$results) > 0)
-    req(selected_feature_id())
-    par(mfrow = c(2, 1))
-    plot_spectrum_by_id(analysis_results$spectra, noise = FALSE, selected_feature_id(), id_column = "FEATURE_ID")
   })
   
   #run Analysis with logging
@@ -536,8 +542,6 @@ app_server <- function(input, output, session) {
       log_text(paste0(current, format(Sys.time(), "[%H:%M:%S] "), msg, "\n"))
     }
     
-    #append_log("Starting Analysis")
-    
 
     settings <- create_settings_list(
       state             = reactiveValuesToList(state),
@@ -553,7 +557,7 @@ app_server <- function(input, output, session) {
     log_state$file <- log_file
     
     
-    MetaboScapeAPI <- getMetaboScapeConnection()
+    if(SelectedProjectID != "") MetaboScapeAPI <- getMetaboScapeConnection()
     future({
       
       write_log <- function(msg) {
@@ -978,20 +982,60 @@ app_server <- function(input, output, session) {
   
   output$score_table <- renderTable({
     req(selected_feature_id())
-    i <- as.numeric(selected_feature_id())
+    i   <- as.numeric(selected_feature_id())
     res <- analysis_results$results
-    df <- res[res$FEATURE_ID == i, 2:ncol(res)]
+    res <- res[res$FEATURE_ID == i, 2:ncol(res), drop = FALSE]
     
-    df[] <- lapply(df, function(col) {
-      if (is.logical(col)) {
-        ifelse(col,
-               "<span style='color:green;font-weight:bold;'>&#10004;</span>",
-               "<span style='color:red;font-weight:bold;'>&#10008;</span>")
+    tick  <- "<span style='color:green;font-weight:bold;'>&#10004;</span>"
+    cross <- "<span style='color:red;font-weight:bold;'>&#10008;</span>"
+    
+    
+    is_match <- function(x) {
+      if (is.list(x)) {
+        lengths(x) > 0
       } else {
-        col
+        x
       }
-    })
+    }
+    df <- as.data.frame(lapply(res, is_match))
+    
+    # Row 1: match yes/no
+    row1 <- vapply(res, function(x) {
+      if (is.list(x)) {
+        if (lengths(x)[1] > 0) tick else cross
+      } else if (is.logical(x)) {
+        if (isTRUE(x[1])) tick else cross
+      } else {
+        as.character(x[1])
+      }
+    }, character(1))
+    df[1,] <- row1
+      
+    # Row 2: found values
+    row2 <- vapply(res, function(x) {
+      if (is.list(x)) paste(round(unlist(x), 3), collapse = ", ") else ""
+    }, character(1))
+    df[2,] <- row2
+    
+    # Row 3: formulas, only for the chain columns
+    row3 <- setNames(rep("", ncol(res)), names(res))
+    ld <- lipid_definition()
+    chain_calcs <- lapply(ld$chains, calc_lipid_chain_masses)
+    chain_cols  <- grep("chain", names(res))
+    for (k in seq_len(min(length(chain_cols), length(chain_calcs)))) {
+      cn       <- names(res)[chain_cols[k]]
+      found    <- unlist(res[[cn]])
+      all_data <- chain_calcs[[k]]
+      
+      tol <- max(max(found) * tolerance_ppm / 1000000, minimum_dalton)
+      near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
+      row3[cn] <- paste(all_data$formula[near], collapse = ", ")
+      
+    }
+    df[3,] <- row3
+    
     colnames(df) <- gsub("[._]", " ", colnames(df))
+
     t(df)
   }, striped = TRUE, rownames = TRUE, colnames = FALSE, sanitize.text.function = function(x) x)
   
@@ -1098,13 +1142,12 @@ app_server <- function(input, output, session) {
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
   
       tagList(
-        #plotOutput("spectrum_plot"),
         plotlyOutput("interactive_spectrum"),
+        tableOutput("score_table") ,
         div(class = "detail-row",
             div(class = "detail-label", "Feature ID"),
             div(class = "detail-value", as.character(spectrum_info$FEATURE_ID))
         ),
-        tableOutput("score_table") ,
         div(class = "detail-row",
             div(class = "detail-label", "m/z"),
             div(class = "detail-value", as.character(format(spectrum_info$precursorMz, digits = 6)))

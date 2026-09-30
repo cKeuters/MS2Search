@@ -135,11 +135,11 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     
     # always-present precursor validation
     session$onFlushed(function() {
-      isolate(add_validation_to_ui(list(name = "precursor validation"), fixed = TRUE))
+      isolate(add_validation_to_ui(list(name = "precursor validation",  adjustments = "", val_priority = "basic",  components = list()), fixed = TRUE))
     }, once = TRUE)
     
     observeEvent(input$add_validation, {
-      add_validation_to_ui(list(name = "validation", selectedComponents = list()))
+      add_validation_to_ui(empty_validation)
     })
     
     observeEvent(load_trigger(), {
@@ -474,7 +474,10 @@ validationUI <- function(id, validation, fixed = FALSE) {
     ),
     if(!fixed){
       actionButton(ns("remove_validation"), label = NULL, icon = icon("trash"), class = "btn-remove-validation")
-    }
+    },
+    createPriorityRadioButtons(ns("val_priority"),
+                               validation$val_priority,
+                               horizontal = TRUE)
   )
 }
 
@@ -500,7 +503,7 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
     
     if (!fixed) {
       observeEvent(input$add_component, add_component_to_ui())
-      for (com in init_validation$selectedComponents) add_component_to_ui(com)
+      for (com in init_validation$components) add_component_to_ui(com)
       
       # keep the choices in sync when chains are added/removed
       observe({
@@ -524,11 +527,11 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
     observeEvent(input$remove_validation,{
       if(is.function(on_remove)) on_remove()
     }, ignoreInit = TRUE, once = TRUE)
-    
     reactive(list(
-      name = input$val_name %||% init_validation$name,
-      adjustments = input$adjustment,
-      components = components()
+      name         = input$val_name %||% init_validation$name,
+      adjustments  = input$adjustment %||% init_validation$adjustments,
+      val_priority = input$val_priority %||% init_validation$val_priority,
+      components   = components()
     ))
   })
 }
@@ -648,5 +651,6 @@ empty_chain <- list(
 empty_validation <- list(
   name = "enter name",
   adjustments = NULL,
+  val_priority = "basic",
   selectedComponents = list()
 )

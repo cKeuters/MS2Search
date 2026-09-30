@@ -74,7 +74,22 @@ setup_and_save_project <- function(settings_list, results, spectra, output_zip_p
 
   jsonlite::write_json(settings_list, file.path(tmp_dir, "settings.json"), auto_unbox = TRUE)
   
-  if(!is.null(results))write.csv(as.data.frame(results), file.path(tmp_dir, "results.csv"))
+
+  if(!is.null(results)){
+    convert_list <- function(x) {
+      if (is.list(x)) {
+        vals <- sapply(x, function(y) {
+          if (length(y) == 0) "" else paste(y, collapse = "/")
+        })
+      } else {
+        x
+      }
+    }
+    results <- lapply(results, convert_list)
+    write.csv(as.data.frame(results), file.path(tmp_dir, "results.csv"))
+  }
+  
+
 
   #zip files
   files_to_zip <- list.files(tmp_dir, full.names = TRUE)
@@ -100,6 +115,20 @@ load_project <- function(zip_path) {
   results <- NULL
   if (("results.csv" %in% list.files(tmp_dir))) {
     results <- read.csv(file.path(tmp_dir, "results.csv"))
+    
+    results[] <- lapply(results, function(col) {
+      if (is.character(col)) {
+        lapply(col, function(x) {
+          if (grepl("/", x, fixed = TRUE)) {
+            as.numeric(strsplit(x, "/", fixed = TRUE)[[1]])
+          } else {
+            x
+          }
+        })
+      } else {
+        col
+      }
+    })
   }
   spectra <- NULL
   if (("spectra.mgf.gz" %in% list.files(tmp_dir))) {
@@ -387,7 +416,7 @@ create_brkrrba_file <- function(settings_list, file_path){
 
 #' @import plotly
 #' @noRd
-plottingSpectra <- function(sp, feature_id, settings_list){
+plottingSpectra <- function(sp, feature_id, settings_list, results){
   rules <- settings_list$specific_filters
   spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID") 
   mz <- unlist(spectrum$mz)
@@ -410,15 +439,28 @@ plottingSpectra <- function(sp, feature_id, settings_list){
   colors["none"] <- "#404040"
   colors["Intensity Filter"] <- "#D3D3D3"
   
-
-  fig <- plot_ly(
-    x = unlist(spectrum$mz),
-    y = unlist(spectrum$intensity),
-    type = "bar",
-    text = unlist(spectrum$mz),
-    color = category,
-    colors = colors
-  ) %>%
+  library(plotly)
+  
+  # 1. Initialize an empty plotly base canvas
+  fig <- plot_ly() %>%
+    # 2. Draw perfectly straight vertical spikes as vector segments
+    add_segments(
+      x = unlist(spectrum$mz), 
+      xend = unlist(spectrum$mz),
+      y = 0, 
+      yend = unlist(spectrum$intensity),
+      color = category,
+      colors = colors,
+      text = paste0("m/z: ", unlist(spectrum$mz), "<br>Intensity: ", unlist(spectrum$intensity)),
+      hoverinfo = "text",
+      showlegend = TRUE
+    ) %>%
+    # 3. Optimize the layout interaction mechanics
+    layout(
+      hovermode = "x",          # Pinpoints the nearest line on the X axis instantly
+      xaxis = list(title = "m/z"),
+      yaxis = list(title = "Intensity")
+    )%>%
     add_segments(
       x = spectrum$precursorMz, xend = spectrum$precursorMz,
       y = 0, yend = max(unlist(spectrum$intensity)),

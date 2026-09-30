@@ -11,7 +11,7 @@
 load_spectra <- function(ms2_file, add_log){
   
   #if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
-  if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
+  #if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
   print(ms2_file)
   
   sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
@@ -87,7 +87,7 @@ createSpectradf <- function(operations, featureTableId){
 #' @import SpectraQL
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
-  #settings_list <- load_project("path/data/newValidations.zip")$settings_list
+  #settings_list <- load_project("path/data/28.9.26_meeting2.zip")$settings_list
 
   #-----------------------------------------------------------------------------
   # Basic filters and checks
@@ -196,7 +196,7 @@ run_analysis <- function(settings_list, sp, add_log){
 
       retained_vector <- lengths(ladders) > 0
       add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
-      results[rule$label] <- retained_vector
+      results[[rule$label]] <- ladders
       if(rule$rule_priority == "required"){
         results <- results[retained_vector,]
         sp <- sp[retained_vector,]
@@ -206,10 +206,13 @@ run_analysis <- function(settings_list, sp, add_log){
       
     }else{
       #Searching for specific mz values in the ms2 data
-      retained_vector <- unlist(lapply(peaks_data, findMZpeak,
-                values = masses, tol_ppm = settings_list$basicFilters$tolerance_ppm, tol_mz = settings_list$basicFilters$minimum_dalton))
+      found_mz <- lapply(peaks_data, findMZpeak,
+                values = masses, 
+                tol_ppm = settings_list$basicFilters$tolerance_ppm, 
+                tol_mz = settings_list$basicFilters$minimum_dalton)
+      retained_vector <- lengths(found_mz) > 0
       add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
-      results[rule$label] <- retained_vector
+      results[[rule$label]] <- found_mz
       if(rule$rule_priority == "required"){
         
         results <- results[retained_vector,]
@@ -230,12 +233,14 @@ run_analysis <- function(settings_list, sp, add_log){
     for(ld in settings_list$lipid_definition$chains){
       masses <- calc_lipid_chain_masses(ld)$mass
       
-      retained_vector <- unlist(lapply(peaks_data, findMZpeak,
+      found_mz <- lapply(peaks_data, findMZpeak,
                                        values = masses, 
                                        tol_ppm = settings_list$basicFilters$tolerance_ppm, 
-                                       tol_mz = settings_list$basicFilters$minimum_dalton))
+                                       tol_mz = settings_list$basicFilters$minimum_dalton)
+      retained_vector <- !is.na(found_mz)
       add_log(paste0("Spectra after Chain ",chain_id,": ", sum(retained_vector)))
-      results[paste("chain",chain_id)] <- retained_vector
+      
+      results[[paste("chain",chain_id)]] <- found_mz
       
       chain_id <- chain_id + 1
       if(ld$priority == "required"){
@@ -250,40 +255,39 @@ run_analysis <- function(settings_list, sp, add_log){
     #-----------------------------------------------------------------------------
     # validation filters
     #-----------------------------------------------------------------------------
-    if(length(settings_list$lipid_definition$chains) > 0){
+    if(length(settings_list$lipid_definition$chains) == 0){
+      settings_list$lipid_definition$validations <- NULL
+    }
       for(val in settings_list$lipid_definition$validations){
         
         chain_ids <- as.numeric(val$components)
-        
         components <- lapply(chain_ids[!is.na(chain_ids)], function(id) calc_lipid_chain_masses(settings_list$lipid_definition$chains[[id]])$mass)
         combos <- do.call(expand.grid, components)
 
         headgroupMass <- if(is.null(settings_list$chain_info$headgroup)||settings_list$chain_info$headgroup == "") 0 else calculateMass(settings_list$chain_info$headgroup)
         masses <- rowSums(combos) + if("Backbone" %in% val$components) headgroupMass else 0
-        retained_vector <- unlist(lapply(peaks_data, findMZpeak,
+
+        found_mz <- lapply(peaks_data, findMZpeak,
                                          values = masses, 
                                          tol_ppm = settings_list$basicFilters$tolerance_ppm, 
-                                         tol_mz = settings_list$basicFilters$minimum_dalton))
-        
+                                         tol_mz = settings_list$basicFilters$minimum_dalton)
+        retained_vector <- lengths(found_mz) > 0
+
         add_log(paste0("Spectra after ",val$name,": ", sum(retained_vector)))
-        results[val$name] <- retained_vector
+        results[[val$name]] <- found_mz
         
-        # if(ld$priority == "required"){
-        #   
-        #   results <- results[retained_vector,]
-        #   sp <- sp[retained_vector,]
-        #   sp_cleaned <- sp_cleaned[retained_vector,]
-        # }
+        print(paste("val$val_priority", val$val_priority))
+        if(val$val_priority == "required"){
+
+          results <- results[retained_vector,]
+          sp <- sp[retained_vector,]
+          sp_cleaned <- sp_cleaned[retained_vector,]
+        }
         
         
       }
       
-    }
-    
-    
-  
   #------------------------- creating dataframe  ----------------------
-    
     priority_weights <- c(
       basic = 1,
       important = 2,
@@ -296,14 +300,24 @@ run_analysis <- function(settings_list, sp, add_log){
       priority_weights[settings_list$basicFilters$n_peaks_priority],
       sapply(settings_list$specific_filters, \(x) priority_weights[x$rule_priority]),
       sapply(settings_list$lipid_definition$chains, \(x) priority_weights[x$priority]),
-      sapply(settings_list$lipid_definition$validations, \(x) 1)
+      sapply(settings_list$lipid_definition$validations, \(x) priority_weights[x$val_priority])
     )
     priorities <- unname(sapply(priorities, function(x) if (length(x) == 0) 0 else x))
     
     start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2)
-    matches <- as.matrix(results[, start_filtercols:ncol(results)])
-    matches <- apply(matches, 2, function(x) as.integer(x))
- 
+    matches <- results[, start_filtercols:ncol(results)]
+    
+    is_match <- function(x) {
+      if(is.list(x)) unlist(lapply(x, function(x2){
+        length(x2) > 0
+      }))else x
+    }
+    
+    matches <- lapply(matches, is_match)
+    matches <- as.data.frame(matches)
+    matches[] <- lapply(matches, as.integer)
+    matches <- as.matrix(matches)
+    
     results$score <- rowSums((sweep(matches, MARGIN=2,priorities, `*`))) / sum(priorities)
     
     as.data.frame(results)
@@ -399,9 +413,10 @@ find_ladder <- function(peaks, precursor = NULL, values, losses_min, losses_max,
 findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
   mz <- peaks[,"mz"]
   values <- sort(as.numeric(values))
-
+  
   idx <- closest(values, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
-  !is.na(any(idx))
+  res <- mz[idx]
+  res[!is.na(res)]
 }
 
 #' Noise filtering 
@@ -468,12 +483,14 @@ calc_lipid_chain_masses <- function(ld){
     lapply(ld$modifications, \(x) if (x$optional) x$formula),
     use.names = FALSE
   )
-  optional_mods <- optional_mods[!optional_mods == "" && !is.null(optional_mods)]
+  optional_mods <- optional_mods[optional_mods != ""]
   required_mods <- unlist(
     lapply(ld$modifications, \(x) if (!x$optional) x$formula),
     use.names = FALSE
   )
-  required_mods <- required_mods[!required_mods == "" && !is.null(required_mods)]
+
+  required_mods <- required_mods[!required_mods == ""]
+  required_mods <- required_mods[!is.null(required_mods)]
   
   mods_combinations <- unlist(
     lapply(
@@ -498,9 +515,15 @@ calc_lipid_chain_masses <- function(ld){
   
   combos$formula <- mapply(
     function(C, H, optional_mod) {
-      mod_DB <- stringr::str_count( paste0(c(optional_mod, required_mods)), "=")
-      modDB <- ifelse((!is.na(mod_DB) && length(mod_DB) != 0), mod_DB, 0) 
-      mod_len <- if(!is.null(optional_mod)) length(optional_mod) else 0
+      
+      mod_DB <- stringr::str_count(
+        paste0(c(optional_mod, required_mods)),
+        "="
+      )
+      
+      modDB <- sum(mod_DB, na.rm = TRUE)
+      
+      mod_len <- length(optional_mod)
       
       paste0(
         "C", C,
@@ -516,6 +539,7 @@ calc_lipid_chain_masses <- function(ld){
   combos$formula <- gsub("=", "", combos$formula)
   combos$mass <- calculateMass(combos$formula)
   
+
   if(is.null(optional_mods))combos[c("formula", "mass")]
   else combos[c("formula", "optional_mod", "mass")]
 }
