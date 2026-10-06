@@ -1,27 +1,52 @@
 
-#' Loading MS2 data 
+#' @title Loading MS2 data 
 #'
-#' @description Loading MS2 data
+#' @description Creating a Spectra Object from a .mgf file
+#' 
+#' @details
+#' Loading in a .mgf file as Spectra object by MsBackendMgf with a file path. 
+#' Setting the retention time from possible variables in th .mgf file.
+#' 
+#' @param ms2file Holds the filepath of a mgf-file.
+#' @param add_log A function to write logs.
 #'
-#' @return returns a spectra object 
+#' @return Returns a spectra object.
 #'
 #' @import Spectra
 #' @import MsBackendMgf
 #' @noRd
-load_spectra <- function(ms2_file, add_log){
+load_spectra <- function(ms2_file, add_log = NULL){
   
   #if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
-  #if(is.null(ms2_file))ms2_file <- "path/data/example.mgf"
   print(ms2_file)
   
   sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
   sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
   sp <- getRT(sp)
   
-  add_log(paste("Loaded MS2-file with ", length(sp)," spectra."))
+  if(!is.null(add_log)) add_log(paste("Loaded MS2-file with ", length(sp)," spectra."))
+
   sp
 }
 
+
+#' @title Get the MetaboScape Feature Table as dataframe 
+#'
+#' @description Gets the feature table from the MetaboScape API and combines all
+#' values in a dataframe ready to create a Spectra Object.
+#' 
+#' @details
+#' Gets the feature table from the API and selects it in the project to find out its 
+#' polarity. MS-level is set to 2. Retention time, precursor mz, Feature_ID, 
+#' metaboScape feature ID, adducts and polarity values are combined in a dataframe.
+#' For each feature the ms2 values are pulled from the API and mz and intensity 
+#' of the ms2 spectra is added to the dataframe.
+#' 
+#' @param operations The MetaboScape API functions from rapiclient.
+#' @param featureTableId MetaboScape ID of the chosen feature table.
+#'
+#' @return Returns a dataframe containing the spectra information.
+#'
 #' @import S4Vectors
 #' @import future.apply
 #' @import purrr
@@ -48,7 +73,6 @@ createSpectradf <- function(operations, featureTableId){
     character(1)
   )
 
-  
   spectra_df <- S4Vectors::DataFrame(
     msLevel = as.integer(2),
     rtime = as.numeric(featureTable$rtInSeconds), 
@@ -69,18 +93,30 @@ createSpectradf <- function(operations, featureTableId){
   spectra_df$mz <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$mz})
   spectra_df$intensity <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$intensity})
 
-  
   spectra_df
 }
 
 
 
-
-#' Analysis coordination 
+#' @title Coodinates the analysis 
 #'
-#' @description A function to run the analysis
+#' @description Uses the filters, chains and rules to process the ms2 data.
+#' 
+#' @details
+#' First there are the basic filters (ms-level, polarity, mz, rt, peak count).
+#' Then the rules are applied. The highest peak from a neutral loss is saved. 
+#' For the chains peaks near the approximated masses are searched. For the 
+#' validation the masses of the chains are combined and searched.
+#' All filter with the priority "required" remove spectra which did not pass.
+#' The score is calculated as 1 for basic and 2 for important priority if the 
+#' filter got passed for that spectrum. It is divided by the sum of all priorities. 
+#' 
+#' @param settings_list A list of lists (json) holding all information of the 
+#' analysis settings.
+#' @param sp A Spectra object containing the ms2 spectra information.
+#' @param add_log A function to write logs.
 #'
-#' @return returns a matrix 
+#' @return Returns a dataframe with the results of each filter, chain and rule. 
 #'
 #' @import Spectra
 #' @import MsBackendMgf
@@ -177,7 +213,7 @@ run_analysis <- function(settings_list, sp, add_log){
       }
       ladders <- Map(
         function(peaks, precursor) {
-          find_ladder(
+          find_neutralLosses(
             peaks = peaks,
             precursor = precursor,
             values = masses,
@@ -190,7 +226,7 @@ run_analysis <- function(settings_list, sp, add_log){
             just_after_precursor = rule$just_after_precursor
           )
         },
-        peaks_data,
+        peaks_data[,"mz"],
         sp$precursorMz
       )
 
@@ -260,12 +296,26 @@ run_analysis <- function(settings_list, sp, add_log){
     }
       for(val in settings_list$lipid_definition$validations){
         
-        chain_ids <- as.numeric(val$components)
+        chain_ids <- chain_ids <- suppressWarnings(as.numeric(val$components))
         components <- lapply(chain_ids[!is.na(chain_ids)], function(id) calc_lipid_chain_masses(settings_list$lipid_definition$chains[[id]])$mass)
         combos <- do.call(expand.grid, components)
 
-        headgroupMass <- if(is.null(settings_list$chain_info$headgroup)||settings_list$chain_info$headgroup == "") 0 else calculateMass(settings_list$chain_info$headgroup)
-        masses <- rowSums(combos) + if("Backbone" %in% val$components) headgroupMass else 0
+        headgroupMass <- if(is.null(settings_list$chain_info$headgroup)||settings_list$chain_info$headgroup == "") 0 
+        else MetaboCoreUtils::calculateMass(settings_list$chain_info$headgroup)
+        
+        adjustmentMass <- 0
+        print(val$adjustments)
+        
+        if(!is.null(val$adjustments) && val$adjustments != ""){
+          adjustments <- str_trim(unlist(strsplit(split = "-", val$adjustments)))
+          print(adjustments)
+          adjustment_masses <- unlist(lapply(adjustments, MetaboCoreUtils::calculateMass))
+          print(adjustment_masses)
+          adjustmentMass <- ifelse(is.na(adjustment_mass[1]), 0, adjustment_mass[1]) - sum(adjustment_masses[2:length(adjustment_masses)])
+        }
+        
+        print(paste("adjustmentMass", adjustmentMass))
+        masses <- rowSums(combos) + adjustmentMass + if("Backbone" %in% val$components) headgroupMass else 0 
 
         found_mz <- lapply(peaks_data, findMZpeak,
                                          values = masses, 
@@ -325,7 +375,20 @@ run_analysis <- function(settings_list, sp, add_log){
 
 
 
-
+#' @title Adds Retention time to a Spectra 
+#'
+#' @description Converts various writings of retention time to rtime in a Spectra
+#' Object.
+#' 
+#' @details
+#' Takes RTINSECONDS, RETENTIONTIME, RETENTION_TIME, RT, RTINMINUTES from the
+#' spectraVariables and adds the variable rtime in seconds to the Spectra Object.
+#' 
+#' @param sp A Spectra object containing the ms2 spectra information.
+#'
+#' @return Returns a Spectra object containing the ms2 spectra information including
+#' retentiontime as rtime. 
+#'
 #' @noRd
 getRT <- function(sp){
   if (all(is.na(rtime(sp)))) {
@@ -357,17 +420,43 @@ getRT <- function(sp){
   sp
 }
 
-#' Finding sequential neutral loss pattern 
+#' @title Finding neutral loss pattern 
 #'
-#' @description Finding sequential neutral loss pattern
+#' @description Searching one spectrum for specific neutral losses between peaks.
+#' 
+#' @details
+#' A possible precursor is added to the mz values of the spectrum (peaks). After
+#' that mz values which are not in the min and max mz range are removed.  
+#' A dataframe is build with the anchor as index of the mz value and the offset as 
+#' one searched value. In a loop the candidates are calculated as mz value plus
+#' the offset plus the offset from the previous run. For each combination of 
+#' peak and possible offsets a row exists. Each loop run candidates that are not 
+#' found are removed from the dataframe and the remaining candidates get another
+#' offset. 
+#' 
+#' 
+#' @param peaks mz values of one spectrum.
+#' @param precursor mz value of the precursor (default NULL).
+#' @param values The values which are to be searched in the spectrum.
+#' @param losses_min The minimum number of sequential neutral losses (default 1).
+#' @param losses_max The maximum number of sequential neutral losses (default 1).
+#' @param tol_ppm Tolerance in ppm (default 10).
+#' @param tol_mz Tolerance in Dalton (default 0.1).
+#' @param rule_min_mz Minimum mz where to be searched (default NULL). 
+#' @param rule_max_mz Maximum mz where to be searched (default NULL). 
+#' @param just_after_precursor If only searched after the precursor (default FALSE).
 #'
-#' @return returns the values of the ladder
+#' @return returns the values of the mz values in range of the tolerance to the 
+#' searched values. For sequences the highest value.
 #'
 #' @import MsCoreUtils
-#' @noRd
-find_ladder <- function(peaks, precursor = NULL, values, losses_min, losses_max, tol_ppm, tol_mz, rule_min_mz, rule_max_mz, just_after_precursor = FALSE, noise_filter = TRUE) {
-  
-  mz <- peaks[,"mz"]
+#' @export
+find_neutralLosses <- function(peaks, precursor = NULL, values, losses_min = 1, 
+                               losses_max = 1, tol_ppm = 10, tol_mz = 0.1, 
+                               rule_min_mz = NULL, rule_max_mz = NULL, 
+                               just_after_precursor = FALSE) {
+
+  mz <- peaks
   if(!is.null(precursor)) mz <- unique(c(mz, precursor))
 
   if(!is.na(rule_min_mz) && !is.null(rule_min_mz))mz <- mz[mz > rule_min_mz]
@@ -419,11 +508,22 @@ findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
   res[!is.na(res)]
 }
 
-#' Noise filtering 
+#' @title Noise filtering of a Spectra object
 #'
-#' @description Noise filtering 
+#' @description Using different Methods to filter the MS2 spectra of a Spectra
+#' object.
+#' 
+#' @details
+#' Uses MsCoreUtils::noise with the method MAD or SuperSmoother or MsCoreUtils::smooth
+#' with MsCoreUtils::coefWMA based on the variable basicFilterValues$noiseFiltering_method
+#' which can be: "MAD", "SuperSmoother" or "wma". After that is either uses a 
+#' fixed threshold or a threshold based on the percent of the maximum peak.
+#' 
+#' @param ms2 A Spectra object.
+#' @param basicFilterValues Named list containing the information which filters 
+#' to use.
 #'
-#' @return returns the cleaned spectra coefWMA
+#' @return Returns the cleaned Spectra object.
 #'
 #' @import MASS
 #' @import tidyverse
@@ -468,24 +568,32 @@ cleaning_ref<- function(ms2, basicFilterValues){
 
 }
 
-#' Chains to masses 
+#' @title Calculation of chain Possiblities
 #'
-#' @description calculates the masses from the lipid definition
+#' @description Calculates all possible formulas and masses from the chains.
+#' 
+#' @details
+#' Divides the modifications in optional and required. Creates a dataframe of
+#' combinations from C-atom counts, double bound counts and optional modifications.
+#' Builds the formula based on this dataframe and calculated the mass for each
+#' formula. 
+#' 
+#' @param chains List of chains from Lipid Definition.
 #'
-#' @return returns the possible masses
+#' @return returns the calculated masses and formulas of the chains.
 #'
 #' @import MetaboCoreUtils
 #' @import stringr
 #' @noRd
-calc_lipid_chain_masses <- function(ld){
+calc_lipid_chain_masses <- function(chains){
   
   optional_mods <- unlist(
-    lapply(ld$modifications, \(x) if (x$optional) x$formula),
+    lapply(chains$modifications, \(x) if (x$optional) x$formula),
     use.names = FALSE
   )
   optional_mods <- optional_mods[optional_mods != ""]
   required_mods <- unlist(
-    lapply(ld$modifications, \(x) if (!x$optional) x$formula),
+    lapply(chains$modifications, \(x) if (!x$optional) x$formula),
     use.names = FALSE
   )
 
@@ -503,8 +611,8 @@ calc_lipid_chain_masses <- function(ld){
   )
   if(length(mods_combinations) == 0) mods_combinations <- ""
   combos <- expand.grid(
-    C  = ld$C_min:ld$C_max,
-    DB = ld$DB_min:ld$DB_max,
+    C  = chains$C_min:chains$C_max,
+    DB = chains$DB_min:chains$DB_max,
     optional_mod = mods_combinations)
   
   
@@ -537,7 +645,7 @@ calc_lipid_chain_masses <- function(ld){
     combos$optional_mod
   )
   combos$formula <- gsub("=", "", combos$formula)
-  combos$mass <- calculateMass(combos$formula)
+  combos$mass <- MetaboCoreUtils::calculateMass(combos$formula)
   
 
   if(is.null(optional_mods))combos[c("formula", "mass")]

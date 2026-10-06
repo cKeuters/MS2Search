@@ -1,12 +1,15 @@
-#' LipidDefinition UI Function
+#' @title Lipid definition UI Function
 #'
-#' @description A shiny Module.
+#' @description The Shiny UI module for the chain and chain validation enviroment.
+#' 
+#' @details
+#' A panel with the headgroup and with one container for the chains and one 
+#' for the validations.
 #'
-#' @param id,input,output,session Internal parameters for {shiny}.
+#' @param id Shiny module id
 #'
+#' @importFrom shiny NS tagList textInput actionButton
 #' @noRd 
-#'
-#' @importFrom shiny NS tagList textInput actionButton 
 mod_LipidDefinition_ui <- function(id) {
   ns <- NS(id)
   tagList(
@@ -41,22 +44,29 @@ mod_LipidDefinition_ui <- function(id) {
 
 
 
-#' LipidDefinition Server Functions
+#' @title Lipid definition Server Function
 #'
+#' @description The Shiny Server module the lipid definition coordination.
+#' 
+#' @details
+#' Updates the headgroup on input. Adds chains to the UI, creates their Servers 
+#' and stores them in a reactiveValue. Does the same with the validations.
+#' 
+#' @param id Shiny module id
+#' @param load_trigger Holds the chains when new data is loaded.
+#' @param head_group The backbone or headgroup the chains are attached to as string.
+#' @param input,output,session Internal parameters for {shiny}.
+#' 
+#' @return Returns a list with a chain list and a validation list.
+#' 
 #' @noRd 
 mod_LipidDefinition_server <- function(id, load_trigger, head_group){
   moduleServer(id, function(input, output, session){
     ns <- session$ns
     
-
-    chain_modules <- reactiveValues()
-    chain_ids <- reactiveVal(character(0))
-    next_chain_id <- reactiveVal(1)
-    
-    
     observeEvent(input$headgroup, {
       head_group(input$headgroup)
-      })
+    })
     
     observeEvent(head_group(), {
       updateTextInput(
@@ -65,7 +75,14 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
         value = head_group()
       )
     })
+
+    #-----------------------------------------------------------------------------
+    # Chains
+    #-----------------------------------------------------------------------------
     
+    chain_modules <- reactiveValues()
+    chain_ids <- reactiveVal(character(0))
+    next_chain_id <- reactiveVal(1)
     
     remove_chain <- function(cid) {
       cid <- as.character(cid)
@@ -97,11 +114,29 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       )
       
       chain_modules[[cid]] <- chain_block_server(child_id, cid, init_chain, remove_chain) 
-      #validation_modules[[1]]$components <- c(validation_modules[[1]]$components, child_id)
       next_chain_id(next_chain_id() + 1)
       
     }
     
+    #if data was loaded, adds the new chains to the UI
+    observeEvent(load_trigger(), {
+      req(load_trigger())
+      chains_to_load <- load_trigger()$chains
+      cat("load_trigger fired, n chains:", length(chains_to_load), "\n")
+      isolate({
+        for (chain in chains_to_load) {
+          tryCatch({
+            add_chain_to_ui(chain)
+          }, error = function(e) {
+            cat("ERROR in add_chain_to_ui:", conditionMessage(e), "\n")
+          })
+        }
+      })
+    }, ignoreNULL = TRUE, ignoreInit = TRUE)
+    
+    #-----------------------------------------------------------------------------
+    # Validations
+    #-----------------------------------------------------------------------------
     
     validation_modules <- list()        
     validation_ids  <- reactiveVal(character(0))
@@ -142,21 +177,8 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       add_validation_to_ui(empty_validation)
     })
     
-    observeEvent(load_trigger(), {
-      req(load_trigger())
-      chains_to_load <- load_trigger()$chains
-      cat("load_trigger fired, n chains:", length(chains_to_load), "\n")
-      isolate({
-        for (chain in chains_to_load) {
-          tryCatch({
-            add_chain_to_ui(chain)
-          }, error = function(e) {
-            cat("ERROR in add_chain_to_ui:", conditionMessage(e), "\n")
-          })
-        }
-      })
-    }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
+    #Return of the function
     reactive({list(
       chains = ({
         ids <- chain_ids()
@@ -177,8 +199,18 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
 }
 
 
-#' UI-Block for one chain
-#' @noRd
+#' @title Chain Block UI Function
+#'
+#' @description The Shiny UI module for one chain.
+#' 
+#' @details
+#' UI for setting the parameters of one chain. Controls modifications, the svg 
+#' of the chain, and the mz information of possible chain combinations.
+#'
+#' @param id Shiny module id
+#' @param init_chain Initial parameters
+#'
+#' @noRd 
 chain_block_ui <- function(id, init_chain) {
   ns <- NS(id)
   div(
@@ -226,11 +258,39 @@ chain_block_ui <- function(id, init_chain) {
   )
 }
 
+#' @title Chain Block Server Function
+#'
+#' @description The Shiny Server module for one chain.
+#' 
+#' @details
+#' It is updating the parameters from the UI. It coordinates the modifications 
+#' modules.
+#' 
+#' @param server_id Shiny module id
+#' @param id ID of the chain, used for removing the chain.
+#' @param init_chain Parameters to initialize the chain.
+#' @param on_remove Function to delete the chain.
+#' @param input,output,session Internal parameters for {shiny}.
+#' 
+#' @return Returns a list with C_min, C_max, DB_min, DB_max, priority, modifications
+#' 
+#' @noRd 
 chain_block_server <- function(server_id, id, init_chain, on_remove ) {
   moduleServer(server_id, function(input, output, session) {
     ns <- session$ns
-    cat("chain_block_server id =", server_id, "\n")
-    
+
+    # ReactiveValues of the Chain parameters
+    #
+    # @details
+    # Variables and values:
+    # \describe{
+    #   \item{C_min}{Minimum number of carbon atoms for the chain. (initial 10)}
+    #   \item{C_max}{Maximum number of carbon atoms for the chain. (initial 20)}
+    #   \item{DB_min}{Minimum number of double bonds in the chain (initial 0)}
+    #   \item{DB_max}{Maximum number of double bonds in the chain (initial 1)}
+    #   \item{priority}{Which scoring priority: basic, important, required (initial basic)}
+    #   \item{modifications}{List of modications added to the chain.}
+    # }
     chain_state <- reactiveValues(
       C_min = init_chain$C_min,
       C_max = init_chain$C_max,
@@ -248,6 +308,12 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     output$chain_priority <- renderUI({
       createPriorityRadioButtons(ns("chain_priority"), chain_state$priority)
     })
+    
+    observeEvent(input$remove_chain, on_remove(id), ignoreInit = TRUE)
+    
+    #--------------------------------------------------------------------------
+    # Validating NumericInputs
+    #--------------------------------------------------------------------------
     
     observeEvent(input$c_min, {
       if(input$c_min < 0) updateNumericInput(session, "c_min", value = 0)
@@ -298,7 +364,9 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
       )
     }
     
-    observeEvent(input$remove_chain, on_remove(id), ignoreInit = TRUE)
+    #--------------------------------------------------------------------------
+    # Modification coordination
+    #--------------------------------------------------------------------------
     
     observeEvent(input$add_mod,{
       init_mod <- list(formula = "", optional = TRUE)
@@ -345,6 +413,9 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
         }
     })
     
+    #--------------------------------------------------------------------------
+    # Chain information visualization
+    #--------------------------------------------------------------------------
     
     output$chain_svg <- renderUI({
       req(chain_state$C_min, chain_state$C_max)
@@ -359,8 +430,8 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     })
     
     infoModalButtonServer("chain_mz_info", df = chain_mz_values)
-    #' box with min and max mz values of chain
-    #' @noRd
+    
+    # box with min and max mz values of chain
     output$mz_box_ui <- renderUI({
       values <- chain_mz_values()
       req(values)
@@ -377,6 +448,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
         }
     ) 
     
+    #return of the function
     reactive({
       list(
         C_min = chain_state$C_min,
@@ -391,8 +463,19 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
   })
 }
 
-#' UI-Chip for one modification
-#' @noRd
+
+#' @title Modification UI Function
+#'
+#' @description The Shiny UI module for one modification of one chain.
+#' 
+#' @details
+#' UI for the input of one modification and if it is optional to the chain.
+#'
+#' @param ns Function for building Shiny module id
+#' @param mid ID of the modification used for naming.
+#' @param init_mod Parameters to initialize modification.
+#'
+#' @noRd 
 mod_chip_ui <- function(ns, mid, init_mod) {
   div(
     id = ns(paste0("mod_chip_", mid)),
@@ -403,6 +486,19 @@ mod_chip_ui <- function(ns, mid, init_mod) {
   )
 }
 
+#' @title Modification Server Function
+#'
+#' @description The Shiny Server module for one modification of one chain.
+#' 
+#' @details
+#' Its just there to give back the input values from the UI mod.
+#' 
+#' @param id Shiny module id
+#' @param input,output,session Internal parameters for {shiny}.
+#' 
+#' @return Returns a list with the formula and the optionality.
+#' 
+#' @noRd 
 mod_chip_server <- function(id) {
   moduleServer(id, function(input, output, session) {
     
@@ -415,6 +511,17 @@ mod_chip_server <- function(id) {
   })
 }
 
+#' @title Chain-Information Pop-Up UI Function
+#'
+#' @description The Shiny UI module for the Chain-Information.
+#' 
+#' @details
+#' Its just a button with a i in it. The Pop-Up is done by the server when clicking
+#' the button.
+#'
+#' @param id Shiny module id
+#'
+#' @noRd 
 # UI of table pop-up
 infoModalButtonUI <- function(id) {
   ns <- NS(id)
@@ -426,9 +533,24 @@ infoModalButtonUI <- function(id) {
   )
 }
 
-# Server of table pop-up
+#' @title Chain-Information Pop-Up Server Function
+#'
+#' @description The Shiny Server module for the Chain-Information.
+#' 
+#' @details
+#' It shows a dialog when the button in the UI is pressed and renders the
+#' datatable in it.
+#' 
+#' @param id Shiny module id
+#' @param df dataframe of the chain information containing the formula, optional
+#' modifications and the masses.
+#' @param title Title of the dialog (detault = NULL)
+#' @param input,output,session Internal parameters for {shiny}.
+#' 
+#' @noRd 
 infoModalButtonServer <- function(id, df, title = NULL) {
   moduleServer(id, function(input, output, session) {
+    
     observeEvent(input$show_info, {
       showModal(modalDialog(
         title = title,
@@ -445,6 +567,20 @@ infoModalButtonServer <- function(id, df, title = NULL) {
   })
 }
 
+#' @title Validation UI Function
+#'
+#' @description The Shiny UI module for one validation.
+#' 
+#' @details
+#' The validation UI for a fixed validation adds its name and all chains and
+#' backbone. Otherwise the components can be changed and the validation can 
+#' be deleted.
+#'
+#' @param id Shiny module id
+#' @param validation List of parameters to Initialze the UI.
+#' @param fixed Defines whether  the user can change the parameters.
+#'
+#' @noRd 
 validationUI <- function(id, validation, fixed = FALSE) {
   ns <- NS(id)
   div(
@@ -469,7 +605,7 @@ validationUI <- function(id, validation, fixed = FALSE) {
       class = "adjustment-row",
       icon("pen", class = "adjustment-icon"),
       textInput(ns("adjustment"), label = NULL,
-                value = validation$adjustments %||% "",
+                value = validation$adjustments,
                 placeholder = "individual adjustment")
     ),
     if(!fixed){
@@ -481,8 +617,27 @@ validationUI <- function(id, validation, fixed = FALSE) {
   )
 }
 
+#' @title Validation Server Function
+#'
+#' @description The Shiny Server module for one validation.
+#' 
+#' @details
+#' Updates the validations from the UI. Can add components to the UI. If it
+#' is fixed, gives all possible components back.
+#' 
+#' @param id Shiny module id
+#' @param init_validation List of parameters to initialze the Server
+#' @param chain_ids Chain IDs to choose from when selecting the components.
+#' @param fixed Boolean to tell whether  the user can change the values.
+#' @param on_remove Function to delete the validation.
+#' @param input,output,session Internal parameters for {shiny}.
+#' 
+#' @return Returns a list with name, adjustments, val_priority and components
+#' 
+#' @noRd 
 validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_remove = NULL) {
   moduleServer(id, function(input, output, session) {
+    
     ns <- session$ns
     sel_ids  <- reactiveVal(character(0))
     next_sel <- reactiveVal(1)
@@ -527,9 +682,11 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
     observeEvent(input$remove_validation,{
       if(is.function(on_remove)) on_remove()
     }, ignoreInit = TRUE, once = TRUE)
+    
+    #Return of the function
     reactive(list(
       name         = input$val_name %||% init_validation$name,
-      adjustments  = input$adjustment %||% init_validation$adjustments,
+      adjustments  = input$adjustment,
       val_priority = input$val_priority %||% init_validation$val_priority,
       components   = components()
     ))
@@ -538,14 +695,12 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
 
 
 
-
-
-#' Baut das SVG-Markup fuer eine Acylkette
+#' Building the svg for a acrylchain
 #'
-#' @param c_min,c_max max bestimmt die gezeichnete Kettenlaenge, ab min wird
-#'   die Kette grau (Bereich der variablen Laenge).
-#' @param db_min,db_max db_max Doppelbindungen werden gleichmaessig ueber die
-#'   Kette verteilt, davon sind die ersten db_min schwarz, der Rest grau.
+#' @param c_min,c_max max defines the length of the chain, min 
+#' defines when the chain gets grey (variabel length between them).
+#' @param db_min,db_max db_max double bonds are distributed over the chain.
+#' 
 #' @noRd
 build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
   c_max  <- max(c_max, c_min, 1)
@@ -602,43 +757,20 @@ build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
   )
 }
 
-#' @import Rdisop
+
+#' @title Default chain values
+#'
+#' @details
+#' Variables and values:
+#' \describe{
+#'   \item{C_min}{Minimum number of carbon atoms for the chain. (initial 10)}
+#'   \item{C_max}{Maximum number of carbon atoms for the chain. (initial 20)}
+#'   \item{DB_min}{Minimum number of double bonds in the chain (initial 0)}
+#'   \item{DB_max}{Maximum number of double bonds in the chain (initial 1)}
+#'   \item{priority}{Which scoring priority: basic, important, required (initial basic)}
+#'   \item{modifications}{List of modications added to the chain.}
+#' }
 #' @noRd
-calc_chain_mz_range <- function(chain_state){
-  
-  mz_mod_min <- 0
-  mz_mod_max <- 0
-  for(mod in chain_state$modifications){
-    if(mod$formula == "")next
-    molecule <- Rdisop::getMolecule(mod$formula)
-    mz_mod_max <- mz_mod_max + Rdisop::getMass(molecule) 
-    if(!mod$optional)mz_mod_min <- mz_mod_min + Rdisop::getMass(molecule) 
-  }
-  chain_mass_min <- ((chain_state$C_min * atom_masses$C) 
-                     + (chain_state$C_min * 2 * atom_masses$H) 
-                     - (sum(vapply(chain_state$modifications,function(x) isFALSE(x$optional) & x$formula != "",logical(1)))* atom_masses$H)
-                     - (chain_state$DB_max * 2 * atom_masses$H)
-                     + mz_mod_min)
-  
-  chain_mass_max <- ((chain_state$C_max * atom_masses$C) 
-                     + (chain_state$C_max * 2 * atom_masses$H) 
-                     - (sum(vapply(chain_state$modifications,function(x) x$formula != "",logical(1)))* atom_masses$H)
-                     - (chain_state$DB_min * 2 * atom_masses$H)
-                     + mz_mod_max)
-  
-  
-  list(min= chain_mass_min, max = chain_mass_max)
-}
-
-atom_masses <- list(
-  H = 1.00783,
-  C = 12.00000,
-  N = 14.00307,
-  O = 15.99491,
-  P = 30.97376,
-  S = 31.97207
-)
-
 empty_chain <- list(
   C_min = 10,
   C_max = 20,
@@ -648,9 +780,20 @@ empty_chain <- list(
   modifications = list()
 )
 
+#' @title Default Validation values
+#'
+#' @details
+#' Variables and values:
+#' \describe{
+#'   \item{name}{Name of the validation}
+#'   \item{adjustments}{String of what to change on the validation}
+#'   \item{val_priority}{Which scoring priority: basic, important, required (initial basic)}
+#'   \item{selectedComponents}{Selected Backbone/chains}
+#' }
+#' @noRd
 empty_validation <- list(
   name = "enter name",
-  adjustments = NULL,
+  adjustments = "",
   val_priority = "basic",
   selectedComponents = list()
 )

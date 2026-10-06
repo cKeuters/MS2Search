@@ -3,11 +3,18 @@
 # Save and Load parameters
 #-------------------------------------------------------------------------------
 
-#' server 
+#' @title Combining all parameters  
 #'
-#' @description A utils function
+#' @description Combines all parameters in one list.
+#' 
+#' @param state project parameters
+#' @param basicFilterValues mz, rt and count parameters, tolerances and noise filtering.
+#' @param toolSettings external tool settings
+#' @param cards parameters of Rule cards
+#' @param lipid_definition parameters of chains and validations
+#' @param headgroup backbone / headgroup of chains
 #'
-#' @return The return value, if any, from executing the utility.
+#' @return Returns the list of all parameters
 #'
 #' @noRd
 create_settings_list <- function(state, basicFilterValues, toolSettings, cards, lipid_definition, headgroup = NULL){
@@ -60,6 +67,21 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
   return(settings_list)
 }
 
+#' @title Saving Project  
+#'
+#' @description Saves the parameters, results and spectra in a zip file.
+#' 
+#' @details
+#' Creates a tmp directionary. Then exports the Spectra object as mgf.gz, 
+#' writes a json file from the settings parameters and writes the results 
+#' in a csv file while seperating lists with /. At the end the tmp dir is
+#' zipped.
+#' 
+#' @param settings_list settings parameters
+#' @param results dataframe of analysis results of the filters and chains.
+#' @param spectra Spectra object of the ms2 spectra
+#' @param output_zip_path_file path where to save
+#'
 #' @noRd
 setup_and_save_project <- function(settings_list, results, spectra, output_zip_path_file) {
   print(output_zip_path_file)
@@ -100,6 +122,17 @@ setup_and_save_project <- function(settings_list, results, spectra, output_zip_p
   unlink(tmp_dir, recursive = TRUE)
 }
 
+
+#' @title Loading Project  
+#'
+#' @description Loads the parameters, results and spectra from a zip file.
+#' 
+#' @details
+#' Unzips the zip file. The setting parameters are loaded from json, the results
+#' from the csv file and the Spectra are loaded from the mgf.gz.
+#' 
+#' @param zip_path path to zip file
+#'
 #' @noRd
 load_project <- function(zip_path) {
   tmp_dir <- tempfile("CeraSearch_load_dir")
@@ -140,31 +173,6 @@ load_project <- function(zip_path) {
 }
 
 
-#' Plot a spectrum selected by feature ID
-#'
-#' @param spectra A `Spectra` object.
-#' @param feature_id Character or numeric. The ID to match against.
-#' @param id_column Character. spectraVariable holding the feature ID.
-#' @param ... Additional arguments passed to `Spectra::plotSpectra()`
-#'   (e.g. `main`, `xlim`, `ylim`).
-#'
-#' @return Invisibly returns the subset Spectra object (useful if you
-#'   want to reuse it, e.g. for peak annotation on top of the plot).
-#'
-#' @importFrom Spectra plotSpectra
-plot_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID", ...) {
-  
-  spec_subset <- get_spectrum_by_id(spectra, feature_id, id_column)
-  
-  Spectra::plotSpectra(
-    spec_subset,
-    main = sprintf("%s: %s", id_column, feature_id),
-    ...
-  )
-  
-  invisible(spec_subset)
-}
-
 
 #' Get a single spectrum from a Spectra object by feature ID
 #'
@@ -203,6 +211,13 @@ get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
 # create brkrrba file
 #-------------------------------------------------------------------------------
 
+#' @title Creating and saving brkrrba-file
+#'
+#' @description Builds a json format from the chains and then saves it as brkrrba-file.
+#' 
+#' @param settings_list A list of setting parameters.
+#' @param file_path path to save file
+#'
 #' @import dplyr
 #' @noRd
 create_brkrrba_file <- function(settings_list, file_path){
@@ -272,7 +287,6 @@ create_brkrrba_file <- function(settings_list, file_path){
     )
     
     #removing one H for each double bound in the required modifications
-    print(mod_DB_count)
     if(mod_DB_count > 0){
       formula <- paste0(formula, " - H", mod_DB_count)
     }
@@ -413,7 +427,20 @@ create_brkrrba_file <- function(settings_list, file_path){
 #-------------------------------------------------------------------------------
 # Plotting with plotly
 #-------------------------------------------------------------------------------
-
+#' @title Getting the neutral loss locations from the results
+#'
+#' @description Takes the results, which include the found peaks, and looks 
+#' between which peaks the neutral loss is located.
+#' 
+#' @param results A list of setting parameters.
+#' @param feature_id id of the selected spectrum
+#' @param rules list of rule parameters
+#' @param spectrum A Spectra object with only one spectrum
+#' @param tol tolerance in Dalton
+#' @param include_precursor Boolean if precusor is added to the spectrum mz values
+#' 
+#' @return The found peaks with partner
+#' 
 #' @noRd
 neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
                                         tol = 0.01, include_precursor = TRUE) {
@@ -429,38 +456,40 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
   }
   
   row <- results[results$FEATURE_ID == feature_id, , drop = FALSE]
+  colnames(row) <- gsub("\\.", " ", colnames(row))
   if (nrow(row) == 0) return(NULL)
 
-  nm <- names(results)
+  nm <- gsub('\\.'," ",names(results))
+ 
   first <- which(nm == "peakCount_filter") + 1
   last  <- which(nm == "score") - 1
   if (length(first) == 0 || length(last) == 0 || first > last) return(NULL)
   filter_cols <- nm[first:last]
   
-  rule_names <- make.names(vapply(rules, function(r) as.character(r$label)[1], character(1)))
+  rule_names <- gsub('\\.'," ",make.names(vapply(rules, function(r) as.character(r$label)[1], character(1))))
   
   out <- list()
   for (col in filter_cols) {
     cell <- row[[col]][1]
+
     val  <- paste(unlist(cell), collapse = " ")
+    
     if (is.na(val) || !nzchar(val) || val == "NA") next
 
     r_idx <- which(rule_names == col)
+
     if (length(r_idx) == 0) r_idx <- which(rule_names == sub("\\.[0-9]+$", "", col))
-    if (length(r_idx) == 0) next         
+    if (length(r_idx) == 0) next 
     rule <- rules[[r_idx]]
-    
+
     label    <- rule$label
     
     found    <- as.numeric(regmatches(val, gregexpr("[0-9]+\\.?[0-9]*", val))[[1]])
-
     masses <- vapply(rule$entries, function(e) {
       resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
     }, numeric(1))
     searched <- abs(as.numeric(masses[!is.na(masses)]))
-  
-    
-    
+
     for (f in found) {
       j <- which.min(abs(mz - f))            # snap to the real found peak
       if (abs(mz[j] - f) > tol) next
@@ -489,6 +518,18 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
   res[!duplicated(key), , drop = FALSE]
 }
 
+#' @title Plotting one spectrum
+#'
+#' @description Creating a plotly plot with colors for the rule filters and 
+#' neutral loss visualization.
+#' 
+#' @param sp A Spectra object with all spectra.
+#' @param feature_id id of the selected spectrum
+#' @param settings_list list of all setting parameters.
+#' @param results The results of the analysis.
+#' 
+#' @return The plotly figure.
+#' 
 #' @import plotly
 #' @noRd
 plottingSpectra <- function(sp, feature_id, settings_list, results){
@@ -516,6 +557,7 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
   
   # ---- neutral losses -> shapes + annotations (hidden by default) ----
   nl <- neutral_losses_from_results(results, feature_id, rules, spectrum, tol = 0.1)
+
   shapes <- list(); annots <- list()
   for (i in seq_len(nrow(nl))) {
     y <- max(nl$int_found[i], nl$int_partner[i])  
@@ -593,7 +635,17 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
 }
 
 
-
+#' @title Using the Rules on one spectrum
+#'
+#' @description Results are the same of the analysis results - function 
+#' obsolete.
+#' 
+#' @param spectrum A Spectra object with one spectrum.
+#' @param settings_list list of all setting parameters.
+#' 
+#' @return The results of the analysis.
+#' 
+#' @noRd
 useRulesOnSpectrum <- function(spectrum, settings_list){
   rules <- settings_list$specific_filters
   filter_results <- list()
@@ -615,8 +667,8 @@ useRulesOnSpectrum <- function(spectrum, settings_list){
         rule$max_repeat = 1
       }
       
-      mz_values <-find_ladder(
-            peaks = peaks_data,
+      mz_values <-find_neutralLosses(
+            peaks = peaks_data[,"mz"],
             precursor = spectrum$precursorMz[[1]],
             values = masses,
             losses_min = rule$min_repeat,
@@ -644,6 +696,19 @@ useRulesOnSpectrum <- function(spectrum, settings_list){
   filter_results
 }
 
+#' @title Ordering the filter results by priority
+#'
+#' @description For each mz peak in the spectrum the results are compared and
+#' from the fitting ones the filter name with the highest priority is taken.
+#' 
+#' @param mz The mz values of the spectrum
+#' @param filter_results results of the analysis
+#' @param filter_priority priority of the result filters
+#' @param tol tolerance in dalton (default 1e-4)
+#' 
+#' @return The names of the priotized rules for each mz value.
+#' 
+#' @noRd
 resolve_filter_category <- function(mz, filter_results, filter_priority, tol = 1e-4) {
   priority_levels = c( "low","basic", "important", "required")
   priority_tuples <- data.frame(
@@ -665,6 +730,16 @@ resolve_filter_category <- function(mz, filter_results, filter_priority, tol = 1
   })
 }
 
+#' @title Plotting ms1 for one feature
+#'
+#' @description Selects the row in the ms1 data with the selected feature id and
+#' plots it with ggplot2.
+#' 
+#' @param ms1_data The dataframe of the ms1 data.
+#' @param selectedFeature The feauture id of the selected feature.
+#' 
+#' @return The ggplot plot
+#' 
 #' @import ggplot2
 #' @noRd
 plotMS1 <- function(ms1_data, selectedFeature){

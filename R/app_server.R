@@ -733,8 +733,6 @@ app_server <- function(input, output, session) {
     true_ids <- names(current)[current]
     true_ids <- na.omit(true_ids)
     
-    print(true_ids)
-
     for(feature in true_ids){
 
       metaboID <- res[which(res$FEATURE_ID == feature),]$metaboScape_ID
@@ -1026,12 +1024,15 @@ app_server <- function(input, output, session) {
     for (k in seq_len(min(length(chain_cols), length(chain_calcs)))) {
       cn       <- names(res)[chain_cols[k]]
       found    <- as.numeric(unlist(res[[cn]]))
+      found <- found[!is.na(found)]
       all_data <- chain_calcs[[k]]
-      
-      tol <- max(max(found) * tolerance_ppm / 1000000, minimum_dalton)
-      near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
-      row3[cn] <- paste(all_data$formula[near], collapse = ", ")
-      
+      if(length(found > 0)){
+        tol <- max(max(found) * tolerance_ppm / 1000000, minimum_dalton)
+        near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
+        row3[cn] <- paste(all_data$formula[near], collapse = ", ")
+      }
+      else row3[cn] <- ""
+
     }
     df[3,] <- row3
     
