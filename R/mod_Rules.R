@@ -93,7 +93,7 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
 #' sequential, next_card_id, rule_priority, rule_mz_min, rule_mz_max.
 #' 
 #' @noRd 
-mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, metabolite_choices, parent_session ) {
+mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, metabolite_choices ) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -292,7 +292,7 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
            rule_mz_min = rule_state$rule_mz_min,
            rule_mz_max = rule_state$rule_mz_max)
     })
-  }, session = parent_session)
+  })
 }
 
 #' @title Entry UI Function
@@ -430,6 +430,7 @@ METABOLITES <- data.frame(
 #'   \item{id}{The id of this entry for deleting purposes.}
 #'   \item{value}{mass or metabolite name}
 #' }
+#' @param id id of the entry
 empty_entry <- function(id) list(id = id, value = "")
 
 
@@ -453,6 +454,8 @@ empty_entry <- function(id) list(id = id, value = "")
 #'   \item{rule_mz_min}{Minimal mz value in the ms2 to search for neutral losses (initial NULL)}
 #'   \item{rule_mz_max}{Maximum mz value in the ms2 to search for neutral losses (initial NULL)}
 #' }
+#' 
+#' @param id id of the Rule card
 empty_card <- function(id) {
   list(
     id = id,

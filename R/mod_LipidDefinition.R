@@ -253,9 +253,7 @@ chain_block_ui <- function(id, init_chain) {
         uiOutput(ns("chain_svg"))
       ),
       uiOutput(ns("mz_box_ui"))
-    ),
-    div(id = ns("mods_below"), class = "mods-row mods-below")
-  )
+    )  )
 }
 
 #' @title Chain Block Server Function
@@ -394,8 +392,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     add_mod_to_ui <- function(init_mod) {
       n_mods <- mod_ids()
       mid <- paste0("mods_", n_mods)
-      position <- if (n_mods %% 2 == 0) "above" else "below"
-      target <- paste0("mods_", position)
+      target <- paste0("mods_above")
       
       insertUI(
         selector = paste0("#", ns(target)),

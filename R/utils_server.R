@@ -531,6 +531,7 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
 #' @return The plotly figure.
 #' 
 #' @import plotly
+#' @importFrom grDevices rainbow
 #' @noRd
 plottingSpectra <- function(sp, feature_id, settings_list, results){
   rules <- settings_list$specific_filters
@@ -755,7 +756,7 @@ plotMS1 <- function(ms1_data, selectedFeature){
     Intensity = as.numeric(intensities)
   )
   
-  ggplot(df, aes(x = Sample, y = Intensity)) +
+  ggplot(df, aes(x = .data$Sample, y = .data$Intensity)) +
     geom_bar(stat = "identity",fill = "#337ab7")+
     coord_flip()+
     theme_minimal()

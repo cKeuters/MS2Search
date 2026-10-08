@@ -6,6 +6,9 @@
 \usage{
 empty_entry(id)
 }
+\arguments{
+\item{id}{id of the entry}
+}
 \description{
 Initial values of a new entry
 }

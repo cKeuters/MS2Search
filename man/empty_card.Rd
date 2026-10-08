@@ -6,6 +6,9 @@
 \usage{
 empty_card(id)
 }
+\arguments{
+\item{id}{id of the Rule card}
+}
 \description{
 Initial values of a new rule
 }

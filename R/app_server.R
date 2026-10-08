@@ -11,8 +11,8 @@
 #' @import promises
 #' @import readr
 #' @import shinyTree
-#' @import rapiclient
-#' @import data.tree
+#' @importFrom stats setNames
+#' @importFrom utils write.csv read.csv combn
 #' @noRd
 app_server <- function(input, output, session) {
   
@@ -411,6 +411,9 @@ app_server <- function(input, output, session) {
     head_group(settings_list$chain_info$headgroup)
 
     for(rule in settings_list$specific_filters){
+      id <- next_card_id()
+      rule$id <- id
+      next_card_id(id + 1)
       add_card_to_ui(rule)
     }
     
@@ -451,9 +454,8 @@ app_server <- function(input, output, session) {
       paste0("card_", cid), card_init, state$mode,
       on_delete = delete_card_by_id,
       on_duplicate = duplicate_card_by_id,
-      metabolite_choices = METABOLITES$name,
-      parent_session = session    
-    )
+      metabolite_choices = METABOLITES$name
+      )
     card_ids(c(card_ids(), cid))
     
     insertUI(
@@ -480,6 +482,7 @@ app_server <- function(input, output, session) {
     new_card$label <- paste(src$label, "duplicate")
     add_card_to_ui(new_card)
     next_card_id(new_id + 1)
+
   }
   
   #-----------------------------------------------------------------------------
@@ -612,8 +615,7 @@ app_server <- function(input, output, session) {
       analysis_results$running <- FALSE
       
       message("Future failed:")
-      message(.)
-      
+
       if (file.exists(log_file)) {
         analysis_results$log <-
           paste(readLines(log_file, warn = FALSE), collapse = "\n")
@@ -674,7 +676,7 @@ app_server <- function(input, output, session) {
             ft_nodes,
             attr  = list(a_attr = list(title = sprintf(
               "%s%s", exps$creationDate[j],
-              if (!is.na(exps$description[j]) && nzchar(exps$description[j])) paste0(" – ", exps$description[j]) else ""
+              if (!is.na(exps$description[j]) && nzchar(exps$description[j])) paste0(" \u2013 ", exps$description[j]) else ""
             ))
           ))
 
@@ -945,7 +947,7 @@ app_server <- function(input, output, session) {
                    class = "filter-group-radio",
                    div(class = "radio-group-inline",
                    radioButtons("radio_FilteringMethod", label = "MsCoreUtils Filtering Method",
-                                choiceNames = c(" MAD (median absolute deviation)", "Friedman’s SuperSmoother", "Weighted Moving Average", "None"),
+                                choiceNames = c(" MAD (median absolute deviation)", "Friedman\u2019s SuperSmoother", "Weighted Moving Average", "None"),
                                 choiceValues = c("MAD", "SuperSmoother", "wma", "none"),
                                 selected = basicFilterValues$noiseFiltering_method)
                  )))
@@ -1114,6 +1116,72 @@ app_server <- function(input, output, session) {
     
   }, server = TRUE)
   
+  
+  output$score_tableDT <- DT::renderDataTable({
+    req(selected_feature_id())
+    i   <- as.numeric(selected_feature_id())
+    res <- analysis_results$results
+    res <- res[res$FEATURE_ID == i, 2:ncol(res), drop = FALSE]
+    
+    tick  <- "<span style='color:green;font-weight:bold;'>&#10004;</span>"
+    cross <- "<span style='color:red;font-weight:bold;'>&#10008;</span>"
+    
+    
+    is_match <- function(x) {
+      if (is.list(x)) {
+        lengths(x) > 0
+      } else {
+        x
+      }
+    }
+    df <- as.data.frame(lapply(res, is_match))
+    
+    # Row 1: match yes/no
+    row1 <- vapply(res, function(x) {
+      if (is.list(x)) {
+        if (lengths(x)[1] > 0) tick else cross
+      } else if (is.logical(x)) {
+        if (isTRUE(x[1])) tick else cross
+      } else {
+        as.character(x[1])
+      }
+    }, character(1))
+    df[1,] <- row1
+    
+    # Row 2: found values
+    row2 <- vapply(res, function(x) {
+      if (is.list(x)) paste(round(as.numeric(unlist(x)), 3), collapse = ", ") else ""
+    }, character(1))
+    df[2,] <- row2
+    
+    # Row 3: formulas, only for the chain columns
+    row3 <- setNames(rep("", ncol(res)), names(res))
+    ld <- lipid_definition()
+    chain_calcs <- lapply(ld$chains, calc_lipid_chain_masses)
+    chain_cols  <- grep("chain", names(res))
+    
+    for (k in seq_len(min(length(chain_cols), length(chain_calcs)))) {
+      cn       <- names(res)[chain_cols[k]]
+      found    <- as.numeric(unlist(res[[cn]]))
+      found <- found[!is.na(found)]
+      all_data <- chain_calcs[[k]]
+      if(length(found > 0)){
+        tol <- max(max(found) * tolerance_ppm / 1000000, minimum_dalton)
+        near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
+        row3[cn] <- paste(all_data$formula[near], collapse = ", ")
+      }
+      else row3[cn] <- ""
+      
+    }
+    df[3,] <- row3
+    
+    colnames(df) <- gsub("[._]", " ", colnames(df))
+    
+    t(df)
+  }, striped = TRUE, rownames = TRUE, colnames = FALSE, sanitize.text.function = function(x) x)
+  
+  
+  
   # catch checkbox toggles from the client
   observeEvent(input$feature_checkbox_change, {
     info <- input$feature_checkbox_change
@@ -1144,28 +1212,30 @@ app_server <- function(input, output, session) {
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
   
       tagList(
+        div(class = "detail-row",
+          div(
+              div(class = "detail-label", "Feature ID"),
+              div(class = "detail-value", as.character(spectrum_info$FEATURE_ID))
+          ),
+          div(
+              div(class = "detail-label", "m/z"),
+              div(class = "detail-value", as.character(format(spectrum_info$precursorMz, digits = 6)))
+          ),
+          div(
+              div(class = "detail-label", "Retention time"),
+              div(class = "detail-value", as.character(format(spectrum_info$rtime, digits = 4)))
+          ),
+          div(
+              div(class = "detail-label", "Adduct"),
+              div(class = "detail-value", paste(unlist(spectrum_info[[adduct_col]]), collapse = ", "))
+          ),
+          div(
+              div(class = "detail-label", "Polarity"),
+              div(class = "detail-value", spectrum_info[[pol_col]])
+          ) 
+        ),
         plotlyOutput("interactive_spectrum"),
         tableOutput("score_table") ,
-        div(class = "detail-row",
-            div(class = "detail-label", "Feature ID"),
-            div(class = "detail-value", as.character(spectrum_info$FEATURE_ID))
-        ),
-        div(class = "detail-row",
-            div(class = "detail-label", "m/z"),
-            div(class = "detail-value", as.character(format(spectrum_info$precursorMz, digits = 6)))
-        ),
-        div(class = "detail-row",
-            div(class = "detail-label", "Retention time"),
-            div(class = "detail-value", as.character(format(spectrum_info$rtime, digits = 4)))
-        ),
-        div(class = "detail-row",
-            div(class = "detail-label", "Adduct"),
-            div(class = "detail-value", paste(unlist(spectrum_info[[adduct_col]]), collapse = ", "))
-        ),
-        div(class = "detail-row",
-            div(class = "detail-label", "Polarity"),
-            div(class = "detail-value", spectrum_info[[pol_col]])
-        ),
         plotOutput("ms1_plot")
       )
     })

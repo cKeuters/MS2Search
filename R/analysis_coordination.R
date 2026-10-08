@@ -120,7 +120,6 @@ createSpectradf <- function(operations, featureTableId){
 #'
 #' @import Spectra
 #' @import MsBackendMgf
-#' @import SpectraQL
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
   #settings_list <- load_project("path/data/28.9.26_meeting2.zip")$settings_list
@@ -525,8 +524,6 @@ findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
 #'
 #' @return Returns the cleaned Spectra object.
 #'
-#' @import MASS
-#' @import tidyverse
 #' @noRd
 cleaning_ref<- function(ms2, basicFilterValues){
   

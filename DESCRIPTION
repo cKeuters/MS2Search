@@ -3,19 +3,49 @@ Title: Searching for specific fragmentation pattern in MS2 data
 Version: 0.0.0.9000
 Authors@R: 
     person("Carina", "Keuters", , "ckeuters@ipb-halle.de", role = c("aut", "cre"))
-Description: Rule based search in MS2 data with different approuches. A MetaboScape search file creation.
+Description: Rule based search in MS2 data with different approuches. A
+    MetaboScape search file creation.
 License: MIT + file LICENSE
-Imports: 
-    config,
-    golem,
-    shiny
-Encoding: UTF-8
-LazyData: true
 URL: https://github.com/cKeuters/MS2Search
 BugReports: https://github.com/cKeuters/MS2Search/issues
+Imports: 
+    bslib,
+    config,
+    dplyr,
+    DT,
+    future,
+    future.apply,
+    ggplot2,
+    golem,
+    grDevices,
+    httr,
+    jsonlite,
+    MetaboCoreUtils,
+    MsBackendMgf,
+    MsCoreUtils,
+    plotly,
+    promises,
+    purrr,
+    readr,
+    S4Vectors,
+    shiny,
+    shinyFiles,
+    shinyjs,
+    shinyTree,
+    shinyWidgets,
+    sodium,
+    Spectra,
+    splines,
+    stats,
+    stringr,
+    tools,
+    utils,
+    zip
 Suggests: 
     spelling,
     testthat (>= 3.0.0)
-Config/testthat/edition: 3
-Language: en-US
 Config/roxygen2/version: 8.0.0
+Config/testthat/edition: 3
+Encoding: UTF-8
+Language: en-US
+LazyData: true
