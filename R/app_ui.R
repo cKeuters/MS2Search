@@ -61,6 +61,13 @@ app_ui <- function(request) {
 		        fluidRow(
 		          column(
 		            width = 6,
+		            tags$details(
+		              tags$summary(
+		                class = "validation-summary",
+		                icon("filter"), "Filtering Table for Filters"
+		              ),
+		              checkboxGroupInput("filter_select", "Select Filters that have to be passed:", choices = NULL)
+		            ),
 		            DT::dataTableOutput("featureTable")
 		          ),
 		          column(
@@ -68,7 +75,7 @@ app_ui <- function(request) {
 		            div(
 		              id = "detailPanel",
 		              class = "detail-panel",
-		              h4("Spektrum Details"),
+		              h4("Spectrum Details"),
 		              uiOutput("spectrumDetails")
 		            )
 		          )
@@ -97,7 +104,7 @@ golem_add_external_resources <- function() {
 		favicon(),
 		bundle_resources(
 			path = app_sys("app/www"),
-			app_title = "MS2SearchGolem"
+			app_title = "MS2Search"
 		)
 		# Add here other external resources
 		# for example, you can add shinyalert::useShinyalert()

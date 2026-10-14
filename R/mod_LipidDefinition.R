@@ -98,6 +98,7 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     }, ignoreInit = TRUE)
     
     add_chain_to_ui <- function(init_chain){
+      
       cid <- as.character(next_chain_id())
       chain_ids(c(chain_ids(), cid))
       
@@ -122,7 +123,6 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     observeEvent(load_trigger(), {
       req(load_trigger())
       chains_to_load <- load_trigger()$chains
-      cat("load_trigger fired, n chains:", length(chains_to_load), "\n")
       isolate({
         for (chain in chains_to_load) {
           tryCatch({
@@ -170,7 +170,7 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     
     # always-present precursor validation
     session$onFlushed(function() {
-      isolate(add_validation_to_ui(list(name = "precursor validation",  adjustments = "", val_priority = "basic",  components = list()), fixed = TRUE))
+      isolate(add_validation_to_ui(list(name = "precursor validation",  adjustments = "-NH3", val_priority = "basic",  components = list()), fixed = TRUE))
     }, once = TRUE)
     
     observeEvent(input$add_validation, {
@@ -334,7 +334,9 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     observeEvent(input$db_min, {
       if(input$db_min < 0) updateNumericInput(session, "db_min", value = 0)
       if(input$db_min > 50) updateNumericInput(session, "db_min", value = 50)
-      chain_state$DB_min <- input$db_min
+      if(input$c_max < input$db_min) updateNumericInput(session, "db_min", value = input$c_max)
+      
+      chain_state$DB_min <- input$db_min 
       updateNumericInput(
         session, "db_max",
         min = chain_state$DB_min,
@@ -345,6 +347,8 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     observeEvent(input$db_max, {
       if(input$db_max < 0) updateNumericInput(session, "db_max", value = 0)
       if(input$db_max > 50) updateNumericInput(session, "db_max", value = 50)
+      if(input$c_max < input$db_max) updateNumericInput(session, "db_min", value = input$db_max)
+      
       chain_state$DB_max <- input$db_max
     })
     
@@ -406,6 +410,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     isolate({
       init_mods <- init_chain$modifications
       for (init_mod in init_mods) {
+        
         add_mod_to_ui(init_mod)
         }
     })
@@ -447,6 +452,9 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     
     #return of the function
     reactive({
+      message("chain_state$modifications")
+      
+      message(chain_state$modifications)
       list(
         C_min = chain_state$C_min,
         C_max = chain_state$C_max,
@@ -683,7 +691,7 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
     #Return of the function
     reactive(list(
       name         = input$val_name %||% init_validation$name,
-      adjustments  = input$adjustment,
+      adjustments  = if(!fixed)input$adjustment else "-NH3",
       val_priority = input$val_priority %||% init_validation$val_priority,
       components   = components()
     ))

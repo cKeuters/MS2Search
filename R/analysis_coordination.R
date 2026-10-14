@@ -272,6 +272,7 @@ run_analysis <- function(settings_list, sp, add_log){
                                        values = masses, 
                                        tol_ppm = settings_list$basicFilters$tolerance_ppm, 
                                        tol_mz = settings_list$basicFilters$minimum_dalton)
+      
       retained_vector <- !is.na(found_mz)
       add_log(paste0("Spectra after Chain ",chain_id,": ", sum(retained_vector)))
       
@@ -303,29 +304,26 @@ run_analysis <- function(settings_list, sp, add_log){
         else MetaboCoreUtils::calculateMass(settings_list$chain_info$headgroup)
         
         adjustmentMass <- 0
-        print(val$adjustments)
-        
+
         if(!is.null(val$adjustments) && val$adjustments != ""){
           adjustments <- str_trim(unlist(strsplit(split = "-", val$adjustments)))
-          print(adjustments)
-          adjustment_masses <- unlist(lapply(adjustments, MetaboCoreUtils::calculateMass))
-          print(adjustment_masses)
-          adjustmentMass <- ifelse(is.na(adjustment_mass[1]), 0, adjustment_mass[1]) - sum(adjustment_masses[2:length(adjustment_masses)])
+          adjustment_masses <- unlist(lapply(adjustments, suppressWarnings(MetaboCoreUtils::calculateMass)))
+          adjustmentMass <- ifelse(is.na(adjustment_masses[1]), 0, adjustment_masses[1]) - sum(adjustment_masses[2:length(adjustment_masses)])
         }
         
-        print(paste("adjustmentMass", adjustmentMass))
         masses <- rowSums(combos) + adjustmentMass + if("Backbone" %in% val$components) headgroupMass else 0 
 
         found_mz <- lapply(peaks_data, findMZpeak,
                                          values = masses, 
                                          tol_ppm = settings_list$basicFilters$tolerance_ppm, 
                                          tol_mz = settings_list$basicFilters$minimum_dalton)
-        retained_vector <- lengths(found_mz) > 0
+        retained_vector <- !is.na(found_mz)
 
         add_log(paste0("Spectra after ",val$name,": ", sum(retained_vector)))
+        
+     
         results[[val$name]] <- found_mz
         
-        print(paste("val$val_priority", val$val_priority))
         if(val$val_priority == "required"){
 
           results <- results[retained_vector,]
@@ -357,9 +355,13 @@ run_analysis <- function(settings_list, sp, add_log){
     matches <- results[, start_filtercols:ncol(results)]
     
     is_match <- function(x) {
-      if(is.list(x)) unlist(lapply(x, function(x2){
-        length(x2) > 0
-      }))else x
+      if (is.list(x)) {
+        vapply(x, function(el) {
+          length(el) > 0 && !all(is.na(el))
+        }, logical(1))
+      } else {
+        !is.na(x) & x
+      }
     }
     
     matches <- lapply(matches, is_match)
@@ -504,7 +506,8 @@ findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
   
   idx <- closest(values, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
   res <- mz[idx]
-  res[!is.na(res)]
+  if(all(is.na(res))) NA
+  else res[!is.na(res)]
 }
 
 #' @title Noise filtering of a Spectra object
@@ -594,6 +597,7 @@ calc_lipid_chain_masses <- function(chains){
     use.names = FALSE
   )
 
+  
   required_mods <- required_mods[!required_mods == ""]
   required_mods <- required_mods[!is.null(required_mods)]
   
@@ -615,7 +619,7 @@ calc_lipid_chain_masses <- function(chains){
   
   mod_H_correction <- length(required_mods)
   
-  combos$H <- (2 * combos$C) - (2 * combos$DB) - mod_H_correction
+  combos$H <- (2 * combos$C) +2 - (2 * combos$DB) - mod_H_correction
   
   
   combos$formula <- mapply(
@@ -644,7 +648,6 @@ calc_lipid_chain_masses <- function(chains){
   combos$formula <- gsub("=", "", combos$formula)
   combos$mass <- MetaboCoreUtils::calculateMass(combos$formula)
   
-
   if(is.null(optional_mods))combos[c("formula", "mass")]
   else combos[c("formula", "optional_mod", "mass")]
 }

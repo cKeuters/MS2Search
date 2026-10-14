@@ -108,7 +108,7 @@ setup_and_save_project <- function(settings_list, results, spectra, output_zip_p
       }
     }
     results <- lapply(results, convert_list)
-    write.csv(as.data.frame(results), file.path(tmp_dir, "results.csv"))
+    write.csv(as.data.frame(results), row.names = FALSE, file.path(tmp_dir, "results.csv"))
   }
   
 
@@ -560,38 +560,44 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
   nl <- neutral_losses_from_results(results, feature_id, rules, spectrum, tol = 0.1)
 
   shapes <- list(); annots <- list()
-  for (i in seq_len(nrow(nl))) {
-    y <- max(nl$int_found[i], nl$int_partner[i])  
-    col <- unname(colors[nl$label[i]])            
-    if (is.na(col)) col <- "black"
+
+  if(!is.null(nl)){
     
-    shapes[[i]] <- list(
-      type = "line", xref = "x", yref = "y",
-      x0 = nl$mz_found[i],   y0 = y,
-      x1 = nl$mz_partner[i], y1 = y,
-      color = category, colors = colors,
-      line = list(color = col, width = 1.5, dash = "dot"),
-      visible = FALSE
-    )
-    annots[[i]] <- list(
-      x = (nl$mz_found[i] + nl$mz_partner[i]) / 2,
-      y = y, yshift = 8,
-      xref = "x", yref = "y",
-      text = nl$mass[i],
-      showarrow = FALSE, font = list(size = 10, color = col),
-      visible = FALSE
-    )
-  }
-  n <- length(shapes)
-  set_vis <- function(v) {
-    out <- list()
-    for (i in seq_len(n)) {
-      out[[sprintf("shapes[%d].visible", i - 1)]]      <- v
-      out[[sprintf("annotations[%d].visible", i - 1)]] <- v
+    for (i in seq_len(nrow(nl))) {
+      y <- max(nl$int_found[i], nl$int_partner[i])  
+      col <- unname(colors[nl$label[i]])            
+      if (is.na(col)) col <- "black"
+      
+      shapes[[i]] <- list(
+        type = "line", xref = "x", yref = "y",
+        x0 = nl$mz_found[i],   y0 = y,
+        x1 = nl$mz_partner[i], y1 = y,
+        color = category, colors = colors,
+        line = list(color = col, width = 1.5, dash = "dot"),
+        visible = FALSE
+      )
+      annots[[i]] <- list(
+        x = (nl$mz_found[i] + nl$mz_partner[i]) / 2,
+        y = y, yshift = 8,
+        xref = "x", yref = "y",
+        text = nl$mass[i],
+        showarrow = FALSE, font = list(size = 10, color = col),
+        visible = FALSE
+      )
     }
-    out
+    n <- length(shapes)
+    set_vis <- function(v) {
+      out <- list()
+      for (i in seq_len(n)) {
+        out[[sprintf("shapes[%d].visible", i - 1)]]      <- v
+        out[[sprintf("annotations[%d].visible", i - 1)]] <- v
+      }
+      out
+    }
+    
   }
   
+
   fig <- plot_ly() %>%
     add_segments(
       x = mz, xend = mz, y = 0, yend = intensities,
@@ -606,7 +612,6 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
       name = "Precursor", inherit = FALSE
     ) %>%
     layout(
-      title = paste("Spectrum", feature_id),
       hovermode = "x",
       xaxis = list(title = "m/z"),
       yaxis = list(title = "Intensity"),
@@ -615,7 +620,7 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
       margin = list(b = 110)
     )
   
-  if (n > 0) {
+  if (!is.null(nl)) {
     fig <- fig %>% layout(
       updatemenus = list(list(
         type = "buttons", direction = "right",

@@ -122,6 +122,7 @@ app_server <- function(input, output, session) {
   analysis_results <- reactiveValues(
     spectra = NULL,
     results = NULL,
+    priorities = NULL,
     running = FALSE,
     log = NULL
   )
@@ -134,7 +135,6 @@ app_server <- function(input, output, session) {
   head_group <- reactiveVal("")
   
   ms1_data <- reactive({
-    read_csv("../../data/example.csv")
     req(input$ms1_file)
     read_csv(input$ms1_file$datapath)
   })
@@ -511,23 +511,10 @@ app_server <- function(input, output, session) {
   selected_feature_id <- reactive({
     req(nrow(analysis_results$results) > 0)
     req(input$featureTable_rows_selected)
-    res <- analysis_results$results
+    res <- filtered_results()
     res$FEATURE_ID[input$featureTable_rows_selected]
   })
   
-  output$interactive_spectrum <- renderPlotly({
-    req(nrow(analysis_results$results) > 0)
-    req(selected_feature_id())
-    settings_list <- create_settings_list(
-      state = reactiveValuesToList(state),
-      basicFilterValues = reactiveValuesToList(basicFilterValues),
-      toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data(), 
-      lipid_definition = lipid_definition(),
-      headgroup = head_group())
-    plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list, analysis_results$results)
-    
-  })
   
   #run Analysis with logging
   observeEvent(input$run_analysis, {
@@ -554,6 +541,14 @@ app_server <- function(input, output, session) {
       lipid_definition   = lipid_definition(),
       headgroup         = head_group()
     )
+    
+    prio <- c(settings$basicFilters$mz_priority, 
+              settings$basicFilters$rt_priority, 
+              settings$basicFilters$n_peaks_priority)
+    prio <- c(prio, unlist(lapply(settings$specific_filters, function(x){x$rule_priority})))
+    prio <- c(prio, unlist(lapply(settings$lipid_definition$chains, function(x){x$priority})))
+    prio <- c(prio, unlist(lapply(settings$lipid_definition$validations, function(x){x$val_priority})))
+    
     
     log_file <- tempfile(paste0("analysis_log_", state$project_name), fileext = ".txt")
     writeLines("", log_file)
@@ -590,6 +585,7 @@ app_server <- function(input, output, session) {
         list(
           spectra = spec,
           results = res,
+          priorities = prio,
           log_file = log_file
         )
         
@@ -608,6 +604,7 @@ app_server <- function(input, output, session) {
       analysis_results$spectra <- .$spectra
       analysis_results$results <- .$results
       analysis_results$running <- FALSE
+      analysis_results$priorities <- .$priorities
       analysis_results$log <- logs
       
     } %...!% {
@@ -772,7 +769,7 @@ app_server <- function(input, output, session) {
   
   
   #-----------------------------------------------------------------------------
-  # Screens Outputs
+  # Setup Screen
   #-----------------------------------------------------------------------------
   
   output$welcome_ui <- renderUI({ 
@@ -833,6 +830,9 @@ app_server <- function(input, output, session) {
 
     })
   
+  #-----------------------------------------------------------------------------
+  # Analysis Screen
+  #-----------------------------------------------------------------------------
   
   output$saved_brkrrba <- renderText({
     brkrrba_save()
@@ -973,78 +973,16 @@ app_server <- function(input, output, session) {
   ))
   })
   
+  #-----------------------------------------------------------------------------
+  # Result Screen
+  #-----------------------------------------------------------------------------
+  
   output$results_ui <- renderUI({ 
     tagList(
       verbatimTextOutput("log"),
       actionButton("setFlagsToMetaboScape", "Set Flags to MetaboScape")
     )
     })
-  
-  output$score_table <- renderTable({
-    req(selected_feature_id())
-    i   <- as.numeric(selected_feature_id())
-    res <- analysis_results$results
-    res <- res[res$FEATURE_ID == i, 2:ncol(res), drop = FALSE]
-    
-    tick  <- "<span style='color:green;font-weight:bold;'>&#10004;</span>"
-    cross <- "<span style='color:red;font-weight:bold;'>&#10008;</span>"
-    
-    
-    is_match <- function(x) {
-      if (is.list(x)) {
-        lengths(x) > 0
-      } else {
-        x
-      }
-    }
-    df <- as.data.frame(lapply(res, is_match))
-    
-    # Row 1: match yes/no
-    row1 <- vapply(res, function(x) {
-      if (is.list(x)) {
-        if (lengths(x)[1] > 0) tick else cross
-      } else if (is.logical(x)) {
-        if (isTRUE(x[1])) tick else cross
-      } else {
-        as.character(x[1])
-      }
-    }, character(1))
-    df[1,] <- row1
-      
-    # Row 2: found values
-    row2 <- vapply(res, function(x) {
-      if (is.list(x)) paste(round(as.numeric(unlist(x)), 3), collapse = ", ") else ""
-    }, character(1))
-    df[2,] <- row2
-    
-    # Row 3: formulas, only for the chain columns
-    row3 <- setNames(rep("", ncol(res)), names(res))
-    ld <- lipid_definition()
-    chain_calcs <- lapply(ld$chains, calc_lipid_chain_masses)
-    chain_cols  <- grep("chain", names(res))
-    
-    for (k in seq_len(min(length(chain_cols), length(chain_calcs)))) {
-      cn       <- names(res)[chain_cols[k]]
-      found    <- as.numeric(unlist(res[[cn]]))
-      found <- found[!is.na(found)]
-      all_data <- chain_calcs[[k]]
-      if(length(found > 0)){
-        tol <- max(max(found) * tolerance_ppm / 1000000, minimum_dalton)
-        near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
-        row3[cn] <- paste(all_data$formula[near], collapse = ", ")
-      }
-      else row3[cn] <- ""
-
-    }
-    df[3,] <- row3
-    
-    colnames(df) <- gsub("[._]", " ", colnames(df))
-
-    t(df)
-  }, striped = TRUE, rownames = TRUE, colnames = FALSE, sanitize.text.function = function(x) x)
-  
-  
-  
   
   
   # --- helper: build a checkbox <input> for one row ---
@@ -1075,7 +1013,7 @@ app_server <- function(input, output, session) {
   
   output$featureTable <- DT::renderDataTable({
     req(analysis_results$results)
-    res <- analysis_results$results
+    res <- filtered_results()
     
     spectrum_info <- as.data.frame(spectraData(analysis_results$spectra)[
       match(res$FEATURE_ID, spectraData(analysis_results$spectra)$FEATURE_ID),
@@ -1117,42 +1055,100 @@ app_server <- function(input, output, session) {
   }, server = TRUE)
   
   
-  output$score_tableDT <- DT::renderDataTable({
-    req(selected_feature_id())
-    i   <- as.numeric(selected_feature_id())
+
+  
+  #filter
+  filter_cols <- reactive({
+    req(analysis_results$results)
     res <- analysis_results$results
-    res <- res[res$FEATURE_ID == i, 2:ncol(res), drop = FALSE]
     
-    tick  <- "<span style='color:green;font-weight:bold;'>&#10004;</span>"
-    cross <- "<span style='color:red;font-weight:bold;'>&#10008;</span>"
     
+    start_filtercols <- ifelse("metaboScape_ID" %in% colnames(res), 3, 2)
+    matches <- res[, start_filtercols:(ncol(res)-1)]
     
     is_match <- function(x) {
       if (is.list(x)) {
-        lengths(x) > 0
+        vapply(x, function(el) {
+          length(el) > 0 && !all(is.na(el))
+        }, logical(1))
       } else {
-        x
+        !is.na(x) & x
       }
     }
-    df <- as.data.frame(lapply(res, is_match))
+    
+    lapply(matches, is_match)
+  })
+  
+  # set checkboxes
+  observeEvent(filter_cols(), {
+    
+    updateCheckboxGroupInput(session, "filter_select",
+                             choices = names(filter_cols()))
+  })
+  
+  #results, but just the ones passing the filters (checkboxes)
+  filtered_results <- reactive({
+    req(analysis_results$results)
+    
+    res <- analysis_results$results
+    res_passed <- as.data.frame(filter_cols())
+    colnames(res_passed) <- gsub("\\.", "_", colnames(res_passed))
+    sel <- gsub(" ", "_",input$filter_select)
+    
+    if (length(sel) == 0) return(res)
+    
+    passed_cols <- res_passed[,sel, drop = FALSE]
+    keep <- rowSums(passed_cols) == ncol(passed_cols)
+    
+    res[keep, , drop = FALSE]
+  })
+  
+  output$filter_results_tableDT <- DT::renderDataTable({
+    req(selected_feature_id())
+    i   <- as.numeric(selected_feature_id())
+    res <- analysis_results$results
+    i_pos <- which(res$FEATURE_ID == i)
+    res <- res[i_pos, 2:ncol(res), drop = FALSE]
+    
+    tick  <- "<span style='color:green;font-weight:bold;'>&#10004;</span>"
+    cross <- "<span style='color:red;font-weight:bold;'>&#10008;</span>"
+
+    df <- as.data.frame(filter_cols())[i_pos,]
     
     # Row 1: match yes/no
-    row1 <- vapply(res, function(x) {
-      if (is.list(x)) {
-        if (lengths(x)[1] > 0) tick else cross
-      } else if (is.logical(x)) {
-        if (isTRUE(x[1])) tick else cross
-      } else {
-        as.character(x[1])
-      }
-    }, character(1))
+    row1 <- ifelse(as.logical(df[1, ]), tick, cross)
     df[1,] <- row1
     
-    # Row 2: found values
+    
+    precursorMz <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == i]$precursorMz
+    
+    #row 2 found values
     row2 <- vapply(res, function(x) {
-      if (is.list(x)) paste(round(as.numeric(unlist(x)), 3), collapse = ", ") else ""
-    }, character(1))
-    df[2,] <- row2
+        
+      if (is.list(x)){
+        value_text <- paste(round(as.numeric(unlist(x)), 3), collapse = ", ")
+        diff <- lapply(x, function(x2){as.numeric(precursorMz) - as.numeric(x2)})
+        diff_text <- paste(round(as.numeric(unlist(diff)), 3), collapse = ", ")
+
+      }else
+      {
+        value_text <- x
+        diff_text <- as.numeric(precursorMz) - as.numeric(x)
+      }
+      if(!is.logical(x) && !is.na(x)){
+        sprintf(
+          '<span title="Found Values: %s&#10;Difference to precursor: %s">%s</span>',
+          value_text,
+          diff_text,
+          value_text
+        )
+      }else ""
+
+      },
+      character(1)
+    )
+    
+    df[2, ] <- row2
     
     # Row 3: formulas, only for the chain columns
     row3 <- setNames(rep("", ncol(res)), names(res))
@@ -1166,7 +1162,7 @@ app_server <- function(input, output, session) {
       found <- found[!is.na(found)]
       all_data <- chain_calcs[[k]]
       if(length(found > 0)){
-        tol <- max(max(found) * tolerance_ppm / 1000000, minimum_dalton)
+        tol <- max(max(found) * basicFilterValues$tolerance_ppm / 1000000, basicFilterValues$minimum_dalton)
         near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
         row3[cn] <- paste(all_data$formula[near], collapse = ", ")
       }
@@ -1176,9 +1172,60 @@ app_server <- function(input, output, session) {
     df[3,] <- row3
     
     colnames(df) <- gsub("[._]", " ", colnames(df))
+    df <- t(df)
     
-    t(df)
-  }, striped = TRUE, rownames = TRUE, colnames = FALSE, sanitize.text.function = function(x) x)
+    
+    DT::datatable(
+      df,
+      rownames = TRUE,
+      escape = FALSE,
+      selection = 'none',
+      colnames = c("Filter", "passed", "found values", "formula"),
+      options = list(
+        paging = FALSE,
+        rowCallback = DT::JS(
+          rowCallback = DT::JS(
+            sprintf(
+              "
+          function(row, data, index) {
+          
+            var p = %s[index];
+          
+            if (p === 'basic') {
+              $(row).css(
+                'background',
+                'linear-gradient(to right, #28a745 0%%, white 20%%, white 100%%)'
+              );
+              $('td', row).css('background', 'transparent');
+            }
+          
+            else if (p === 'important') {
+              $(row).css(
+                'background',
+                'linear-gradient(to right, #fd7e14 0%%, white 20%%, white 100%%)'
+              );
+              $('td', row).css('background', 'transparent');
+            }
+          
+            else if (p === 'required') {
+              $(row).css(
+                'background',
+                'linear-gradient(to right,  #dc3545 0%%, white 20%%, white 100%%)'
+              );
+              $('td', row).css('background', 'transparent');
+            }
+          
+          }
+          ",
+    jsonlite::toJSON(analysis_results$priorities)
+            )
+          )
+        )
+      )
+    )
+    
+ 
+  }, server = TRUE)
   
   
   
@@ -1190,7 +1237,19 @@ app_server <- function(input, output, session) {
     checked_features(current)                     
   }, ignoreInit = TRUE)
   
-  
+  output$interactive_spectrum <- renderPlotly({
+    req(nrow(analysis_results$results) > 0)
+    req(selected_feature_id())
+    settings_list <- create_settings_list(
+      state = reactiveValuesToList(state),
+      basicFilterValues = reactiveValuesToList(basicFilterValues),
+      toolSettings = reactiveValuesToList(ToolSettings),
+      cards   = all_cards_data(), 
+      lipid_definition = lipid_definition(),
+      headgroup = head_group())
+    plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list, analysis_results$results)
+    
+  })
   
   output$ms1_plot <- renderPlot({
     req(selected_feature_id())
@@ -1235,7 +1294,7 @@ app_server <- function(input, output, session) {
           ) 
         ),
         plotlyOutput("interactive_spectrum"),
-        tableOutput("score_table") ,
+        DT::dataTableOutput("filter_results_tableDT"),
         plotOutput("ms1_plot")
       )
     })
