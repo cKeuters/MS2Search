@@ -323,60 +323,6 @@
 }
 
 
-/* toggle button css */
-
-/* From Uiverse.io by gharsh11032000 */ 
-/* The switch - the box around the slider */
-.switch {
-  font-size: 14px;
-  position: relative;
-  display: inline-block;
-  width: 3em;
-  height: 1.5em;
-}
-
-/* Hide default HTML checkbox */
-.switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-/* The slider */
-.slider {
-  position: absolute;
-  cursor: pointer;
-  inset: 0;
-  border: 2px solid #414141;
-  border-radius: 50px;
-  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 1.1em;
-  width: 1.1em;
-  left: 0.2em;
-  bottom: 0.05em;
-  background-color: black;
-  border-radius: inherit;
-  transition: all 0.4s cubic-bezier(0.23, 1, 0.320, 1);
-}
-
-.switch input:checked + .slider {
-  border: 2px solid #0974f1;
-}
-
-.switch input:checked + .slider:before {
-  transform: translateX(1.2em);
-}
-
-.disabled-div {
-    opacity: 0.4;
-    pointer-events: none;
-}
-
 
 /* Tooltips */
 .tooltip-inner {
@@ -925,7 +871,64 @@ table.dataTable tbody tr.selected {
   color: #e74c3c;
 }
 
-/* Modifikations-Chips oberhalb/unterhalb der Kette */
+
+
+/* switch / slider for even steps */
+
+.switch {
+  display: inline-block;
+  height: 20px;
+  position: relative;
+  width: 40px;
+}
+
+.switch input {
+  display: none;
+}
+
+.slider {
+  background-color: #ccc;
+  bottom: 0;
+  cursor: pointer;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  transition: .4s;
+}
+
+.slider:before {
+  background-color: #fff;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  top: 2px;
+  position: absolute;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #BCCA6C;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.slider.round {
+  border-radius: 10px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+
+
+
+
+/* Modifikations-Chips oberhalb der Kette */
 .mods-row {
   display: flex;
   flex-wrap: wrap;

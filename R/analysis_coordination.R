@@ -611,11 +611,18 @@ calc_lipid_chain_masses <- function(chains){
     recursive = FALSE
   )
   if(length(mods_combinations) == 0) mods_combinations <- ""
+
   combos <- expand.grid(
-    C  = chains$C_min:chains$C_max,
+    C = seq(
+      from = ifelse(chains$even_steps, 
+                    ifelse(chains$C_min %% 2 == 0,chains$C_min, chains$C_min+1 ), 
+                    chains$C_min),
+      to   = chains$C_max,
+      by   = ifelse(chains$even_steps, 2, 1)
+    ),
     DB = chains$DB_min:chains$DB_max,
-    optional_mod = mods_combinations)
-  
+    optional_mod = mods_combinations
+  )
   
   mod_H_correction <- length(required_mods)
   

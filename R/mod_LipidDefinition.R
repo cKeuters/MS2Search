@@ -170,12 +170,34 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     
     # always-present precursor validation
     session$onFlushed(function() {
-      isolate(add_validation_to_ui(list(name = "precursor validation",  adjustments = "-NH3", val_priority = "basic",  components = list()), fixed = TRUE))
+      withReactiveDomain(session, {
+        isolate(add_validation_to_ui(
+          list(name = "precursor validation", adjustments = "",
+               val_priority = "basic", components = list()),
+          fixed = TRUE
+        ))
+      })
     }, once = TRUE)
     
     observeEvent(input$add_validation, {
       add_validation_to_ui(empty_validation)
     })
+    
+    #if data was loaded, adds the validations to the UI
+    observeEvent(load_trigger(), {
+      req(load_trigger())
+      for(val_id in validation_ids()) remove_validation(val_id)
+      vals_to_load <- load_trigger()$validations
+      isolate({
+        for (val in vals_to_load) {
+          tryCatch({
+            add_validation_to_ui(val)
+          }, error = function(e) {
+            cat("ERROR in add_validation_to_ui:", conditionMessage(e), "\n")
+          })
+        }
+      })
+    }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
     
     #Return of the function
@@ -219,6 +241,19 @@ chain_block_ui <- function(id, init_chain) {
     div(
       class = "chain-controls",
       actionButton(ns("remove_chain"), "\u00d7", class = "btn-remove-chain"),
+      div(
+        class = "control-group",
+        tags$label("Even Steps"),
+        tags$label(
+          class = "switch",
+          tags$input(
+            id = ns("even_steps"),
+            type = "checkbox",
+            checked = init_chain$even_steps
+          ),
+          tags$span(class = "slider round")
+        )
+      ),
       div(
         class = "control-group",
         tags$label("C-Atoms"),
@@ -284,6 +319,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     # \describe{
     #   \item{C_min}{Minimum number of carbon atoms for the chain. (initial 10)}
     #   \item{C_max}{Maximum number of carbon atoms for the chain. (initial 20)}
+    #   \item{even_steps}{Determines if the chain only has C-values divided by 2. (initial TRUE)}
     #   \item{DB_min}{Minimum number of double bonds in the chain (initial 0)}
     #   \item{DB_max}{Maximum number of double bonds in the chain (initial 1)}
     #   \item{priority}{Which scoring priority: basic, important, required (initial basic)}
@@ -292,10 +328,11 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     chain_state <- reactiveValues(
       C_min = init_chain$C_min,
       C_max = init_chain$C_max,
+      even_steps = init_chain$even_steps,
       DB_min = init_chain$DB_min,
       DB_max = init_chain$DB_max,
       priority = "basic",
-      modifications = init_chain$modifications
+      modifications = NULL
     )
     mod_ids <- reactiveVal(1)
     
@@ -308,6 +345,13 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     })
     
     observeEvent(input$remove_chain, on_remove(id), ignoreInit = TRUE)
+    observeEvent(input$even_steps,{
+      chain_state$even_steps <- isTRUE(input$even_steps)
+      
+      step_size <- ifelse(isTRUE(input$even_steps), 2, 1)
+      updateNumericInput(session, "c_min", step = step_size)
+      updateNumericInput(session, "c_max", step = step_size)
+    })
     
     #--------------------------------------------------------------------------
     # Validating NumericInputs
@@ -334,8 +378,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     observeEvent(input$db_min, {
       if(input$db_min < 0) updateNumericInput(session, "db_min", value = 0)
       if(input$db_min > 50) updateNumericInput(session, "db_min", value = 50)
-      if(input$c_max < input$db_min) updateNumericInput(session, "db_min", value = input$c_max)
-      
+
       chain_state$DB_min <- input$db_min 
       updateNumericInput(
         session, "db_max",
@@ -347,8 +390,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     observeEvent(input$db_max, {
       if(input$db_max < 0) updateNumericInput(session, "db_max", value = 0)
       if(input$db_max > 50) updateNumericInput(session, "db_max", value = 50)
-      if(input$c_max < input$db_max) updateNumericInput(session, "db_min", value = input$db_max)
-      
+      test_maxDB()
       chain_state$DB_max <- input$db_max
     })
     
@@ -403,6 +445,10 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
         where = "beforeEnd",
         ui = mod_chip_ui(ns, mid, init_mod)
       )
+      print("mid")
+      print(mid)
+      print("init_mod")
+      print(init_mod)
       register_mod_observers(mid, init_mod)
       mod_ids(mod_ids() + 1)
     }
@@ -410,7 +456,6 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     isolate({
       init_mods <- init_chain$modifications
       for (init_mod in init_mods) {
-        
         add_mod_to_ui(init_mod)
         }
     })
@@ -458,6 +503,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
       list(
         C_min = chain_state$C_min,
         C_max = chain_state$C_max,
+        even_steps = chain_state$even_steps,
         DB_min = chain_state$DB_min,
         DB_max = chain_state$DB_max,
         priority = chain_state$priority,
@@ -613,12 +659,10 @@ validationUI <- function(id, validation, fixed = FALSE) {
                 value = validation$adjustments,
                 placeholder = "individual adjustment")
     ),
-    if(!fixed){
-      actionButton(ns("remove_validation"), label = NULL, icon = icon("trash"), class = "btn-remove-validation")
-    },
     createPriorityRadioButtons(ns("val_priority"),
                                validation$val_priority,
-                               horizontal = TRUE)
+                               horizontal = TRUE),
+    actionButton(ns("remove_validation"), label = NULL, icon = icon("trash"), class = "btn-remove-validation")
   )
 }
 
@@ -691,7 +735,7 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
     #Return of the function
     reactive(list(
       name         = input$val_name %||% init_validation$name,
-      adjustments  = if(!fixed)input$adjustment else "-NH3",
+      adjustments  = input$adjustment,
       val_priority = input$val_priority %||% init_validation$val_priority,
       components   = components()
     ))
@@ -709,8 +753,6 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
 #' @noRd
 build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
   c_max  <- max(c_max, c_min, 1)
-  if(c_max > 100)return()
-  if(db_max > 50)return() 
   db_max <- max(db_max, db_min, 0)
   
   dx <- 24; dy <- 16
@@ -770,6 +812,7 @@ build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
 #' \describe{
 #'   \item{C_min}{Minimum number of carbon atoms for the chain. (initial 10)}
 #'   \item{C_max}{Maximum number of carbon atoms for the chain. (initial 20)}
+#'   \item{even_steps}{Determines if the chain only has C-values divided by 2. (initial TRUE)}
 #'   \item{DB_min}{Minimum number of double bonds in the chain (initial 0)}
 #'   \item{DB_max}{Maximum number of double bonds in the chain (initial 1)}
 #'   \item{priority}{Which scoring priority: basic, important, required (initial basic)}
@@ -779,6 +822,7 @@ build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
 empty_chain <- list(
   C_min = 10,
   C_max = 20,
+  even_steps = TRUE,
   DB_min = 0,
   DB_max = 1,
   priority = "basic",
