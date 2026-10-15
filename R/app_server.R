@@ -5,14 +5,15 @@
 #' @import shiny
 #' @import shinyFiles
 #' @import shinyWidgets
-#' @import jsonlite
+#' @importFrom jsonlite fromJSON
 #' @import zip
-#' @import future
+#' @importFrom future future plan
 #' @import promises
 #' @import readr
 #' @import shinyTree
 #' @importFrom stats setNames
 #' @importFrom utils write.csv read.csv combn
+#' @importFrom plotly renderPlotly plotlyOutput
 #' @noRd
 app_server <- function(input, output, session) {
   
@@ -139,17 +140,18 @@ app_server <- function(input, output, session) {
     read_csv(input$ms1_file$datapath)
   })
   
+  #MetaboScape Authentification and Projects
   metaboAuth <- reactiveValues(
     authenticated = FALSE, 
     pending_action = NULL
     )
-  
-  mod_MetaboScape_auth_server("auth", metaboAuth)
   MetaboScapeProjects <- reactiveVal(list())
   MetaboSelectedProjectID <- reactiveVal("")
   
   MS2file_name <- reactiveVal("")
+  
   checked_features <- reactiveVal(NULL) 
+  score_threshold <- reactiveVal(0.5)
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -644,6 +646,7 @@ app_server <- function(input, output, session) {
   #-------------------------------------------------------------------------------
   # MetaboScape API
   #-------------------------------------------------------------------------------
+  mod_MetaboScape_auth_server("auth", metaboAuth)
   
   selectProject_from_metaboscape <- function(){
     if(length(MetaboScapeProjects()) == 0){
@@ -720,24 +723,29 @@ app_server <- function(input, output, session) {
     res <- analysis_results$results
     req(res)
     
-    tableID <- MetaboSelectedProjectID()
-    if(tableID == "") {metaboAuth$require_auth(function() {
-      selectProject_from_metaboscape()   
-    })}
-    
-
-    MetaboScapeAPI <- getMetaboScapeConnection()
-    current <- isolate(checked_features())
-    
-    true_ids <- names(current)[current]
-    true_ids <- na.omit(true_ids)
-    
-    for(feature in true_ids){
-
-      metaboID <- res[which(res$FEATURE_ID == feature),]$metaboScape_ID
-      res <- MetaboScapeAPI$addFlagToFeature(featureId = metaboID, flag = "BLUE")
+    if(!"metaboScape_ID" %in% colnames(res)){
+      showNotification("The Analysis had to be run on MetaboScape data from a
+                       connected Server. Connect to a server in Setup, select 
+                       a feature table and repeat the analysis.", 
+                       duration = 10, type = "warning")
+    }else{
+      MetaboScapeAPI <- getMetaboScapeConnection()
+      current <- isolate(checked_features())
       
+      true_ids <- names(current)[current]
+      true_ids <- na.omit(true_ids)
+      
+      for(feature in true_ids){
+
+        
+        metaboID <- res[which(res$FEATURE_ID == feature),]$metaboScape_ID
+        MetaboScapeAPI$addFlagToFeature(featureId = metaboID, flag = flag_color()$color)
+        
+
+        
+      }
     }
+
       
 
   }))
@@ -974,15 +982,75 @@ app_server <- function(input, output, session) {
   })
   
   #-----------------------------------------------------------------------------
-  # Result Screen
+  # Result Screen - Top
   #-----------------------------------------------------------------------------
   
-  output$results_ui <- renderUI({ 
+  flag_color  <- reactiveVal(list(color = "BLUE", rgb = "color: rgb(0,0,255)"))
+  show_picker <- reactiveVal(FALSE)
+  
+  flag_choices <- list(list(color = "BLUE", rgb = "color: rgb(0,0,255)"),
+                    list(color = "GREEN", rgb = "color: rgb(0,255,0)"),
+                    list(color = "RED", rgb = "color: rgb(255,0,0)"))
+  
+  output$results_ui <- renderUI({
     tagList(
       verbatimTextOutput("log"),
-      actionButton("setFlagsToMetaboScape", "Set Flags to MetaboScape")
+      div(class = "flex-distance",
+          div(class = "input-block",
+              numericInput("score_threshold", NULL, value = score_threshold(), min = 0,
+                           max = 1, step = 0.1)
+              ),
+          actionButton("set_score_threshold",   "Check"),
+          actionButton("uncheckAll",        "Uncheck all"),
+          br(),
+          div(class = "flag-wrapper",
+              actionLink("changeFlagColor",
+                         label = tags$i(class = "fa-solid fa-flag", style = flag_color()$rgb)),
+              uiOutput("flag_picker")
+          ),
+          actionButton("setFlagsToMetaboScape", "Set Flags to MetaboScape")
+      )
     )
-    })
+  })
+  
+  # Toggle popup when the flag is clicked
+  observeEvent(input$changeFlagColor, {
+    show_picker(!show_picker())
+  })
+  
+  # Popup content, rendered right below the flag
+  output$flag_picker <- renderUI({
+    req(show_picker())
+    div(class = "flag-picker",
+        lapply(flag_choices, function(color) {
+          tags$a(
+            href = "#", class = "flag-option",
+            onclick = sprintf(
+              "Shiny.setInputValue('flag_color_pick', '%s', {priority: 'event'}); return false;",
+              color$color),
+            tags$i(class = "fa-solid fa-flag", style = color$rgb)
+          )
+        })
+    )
+  })
+  
+  # Pick a color: update the flag and close the popup
+  observeEvent(input$flag_color_pick, {
+    match_idx <- which(sapply(flag_choices, function(x) x$color) == input$flag_color_pick)
+    
+    flag_color(flag_choices[[match_idx]])
+    show_picker(FALSE)
+  })
+  
+  # Close when clicking outside
+  observeEvent(input$flag_picker_close, show_picker(FALSE))
+  
+  
+  
+  
+  #-----------------------------------------------------------------------------
+  # Result Screen - Feature Table
+  #-----------------------------------------------------------------------------
   
   
   # --- helper: build a checkbox <input> for one row ---
@@ -1008,30 +1076,32 @@ app_server <- function(input, output, session) {
   
 
   observeEvent(analysis_results$results, {
-    checked_features(setNames(analysis_results$results$score > 0.5, as.character(analysis_results$results$FEATURE_ID)))
+    checked_features(setNames(filtered_results()$score > score_threshold(), as.character(filtered_results()$FEATURE_ID)))
   }, ignoreNULL = TRUE)
+  
+  observeEvent(input$score_threshold, {
+    score_threshold(input$score_threshold)
+  })
+  
+  # Table data without the checkbox column, shared by render + proxy update
+  table_data <- reactive({
+    res <- filtered_results()
+    sd  <- spectraData(analysis_results$spectra)
+    info <- as.data.frame(sd[match(res$FEATURE_ID, sd$FEATURE_ID),
+                             c("FEATURE_ID", "precursorMz", "rtime")])
+    info$score <- res$score
+    info
+  })
+  
+  add_checkboxes <- function(info, checked) {
+    ids <- as.character(info$FEATURE_ID)
+    info$selected <- mapply(checkbox_html, ids, checked[ids], USE.NAMES = FALSE)
+    info
+  }
   
   output$featureTable <- DT::renderDataTable({
     req(analysis_results$results)
-    res <- filtered_results()
-    
-    spectrum_info <- as.data.frame(spectraData(analysis_results$spectra)[
-      match(res$FEATURE_ID, spectraData(analysis_results$spectra)$FEATURE_ID),
-      c("FEATURE_ID", "precursorMz", "rtime")
-    ])
-    spectrum_info$score <- res$score
-    
-    current <- isolate(checked_features())        
-    ids <- as.character(spectrum_info$FEATURE_ID)  
-    
-    spectrum_info$selected <- mapply(
-      checkbox_html,
-      ids,
-      current[ids],
-      USE.NAMES = FALSE
-    )
-    
-    spectrum_info <- spectrum_info[, c( "FEATURE_ID", "precursorMz", "rtime", "score", "selected")]
+    spectrum_info <- add_checkboxes(table_data(), isolate(checked_features()))
     
     DT::datatable(
       spectrum_info,
@@ -1043,26 +1113,61 @@ app_server <- function(input, output, session) {
       options = list(
         pageLength = 25,
         lengthMenu = c(25, 50, 100),
-        order = list(list(4, "desc")),
-        columnDefs = list(list(orderable = FALSE, targets = 0))
+        order = list(list(3, "desc")),
+        columnDefs = list(list(orderable = FALSE, targets = 4))
       ),
       callback = checkbox_js
     ) |>
-      DT::formatRound(columns = "precursorMz", digits = 6) |>
-      DT::formatRound(columns = "rtime", digits = 4) |>
-      DT::formatRound(columns = "score", digits = 3)
-    
+      DT::formatRound("precursorMz", 6) |>
+      DT::formatRound("rtime", 4) |>
+      DT::formatRound("score", 3)
   }, server = TRUE)
   
+  proxy <- DT::dataTableProxy("featureTable")
   
+  # Checkbox toggles: only update the stored state, table is untouched
+  observeEvent(input$feature_checkbox_change, {
+    info <- input$feature_checkbox_change
+    current <- checked_features()
+    current[[as.character(info$id)]] <- isTRUE(info$checked)
+    checked_features(current)
+  }, ignoreInit = TRUE)
+  
+  # Threshold button: update the state AND refresh the table contents
+  observeEvent(input$set_score_threshold, {
+    res <- filtered_results()
+    new_state <- setNames(res$score > score_threshold(), as.character(res$FEATURE_ID))
+    checked_features(new_state)
+    
+    DT::replaceData(
+      proxy,
+      add_checkboxes(table_data(), new_state),
+      resetPaging = FALSE,
+      clearSelection = "none",
+      rownames = FALSE
+    )
+  })
+  
+  observeEvent(input$uncheckAll, {
+    res <- filtered_results()
+    new_state <- setNames(rep(FALSE, length(res$FEATURE_ID)), as.character(res$FEATURE_ID))
+    checked_features(new_state)
+    
+    DT::replaceData(
+      proxy,
+      add_checkboxes(table_data(), new_state),
+      resetPaging = FALSE,
+      clearSelection = "none",
+      rownames = FALSE
+    )
+  })
 
   
   #filter
   filter_cols <- reactive({
     req(analysis_results$results)
     res <- analysis_results$results
-    
-    
+
     start_filtercols <- ifelse("metaboScape_ID" %in% colnames(res), 3, 2)
     matches <- res[, start_filtercols:(ncol(res)-1)]
     
@@ -1081,7 +1186,6 @@ app_server <- function(input, output, session) {
   
   # set checkboxes
   observeEvent(filter_cols(), {
-    
     updateCheckboxGroupInput(session, "filter_select",
                              choices = names(filter_cols()))
   })
@@ -1089,7 +1193,6 @@ app_server <- function(input, output, session) {
   #results, but just the ones passing the filters (checkboxes)
   filtered_results <- reactive({
     req(analysis_results$results)
-    
     res <- analysis_results$results
     res_passed <- as.data.frame(filter_cols())
     colnames(res_passed) <- gsub("\\.", "_", colnames(res_passed))
@@ -1103,27 +1206,35 @@ app_server <- function(input, output, session) {
     res[keep, , drop = FALSE]
   })
   
+  
+  
+  #-----------------------------------------------------------------------------
+  # Result Screen - Feature Details
+  #-----------------------------------------------------------------------------
+  
+  
   output$filter_results_tableDT <- DT::renderDataTable({
     req(selected_feature_id())
     i   <- as.numeric(selected_feature_id())
     res <- analysis_results$results
     i_pos <- which(res$FEATURE_ID == i)
     res <- res[i_pos, 2:ncol(res), drop = FALSE]
+    colnames(res) <- gsub("[\\._]", " ", colnames(res))
     
     tick  <- "<span style='color:green;font-weight:bold;'>&#10004;</span>"
     cross <- "<span style='color:red;font-weight:bold;'>&#10008;</span>"
 
     df <- as.data.frame(filter_cols())[i_pos,]
+    colnames(df) <- gsub("[\\._]", " ", colnames(df))
     
     # Row 1: match yes/no
     row1 <- ifelse(as.logical(df[1, ]), tick, cross)
     df[1,] <- row1
     
-    
     precursorMz <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == i]$precursorMz
-    
+
     #row 2 found values
-    row2 <- vapply(res, function(x) {
+    row2 <- vapply(res[,colnames(df)], function(x) {
         
       if (is.list(x)){
         value_text <- paste(round(as.numeric(unlist(x)), 3), collapse = ", ")
@@ -1147,11 +1258,11 @@ app_server <- function(input, output, session) {
       },
       character(1)
     )
-    
-    df[2, ] <- row2
-    
+
+    df <- rbind(df, row2) 
+
     # Row 3: formulas, only for the chain columns
-    row3 <- setNames(rep("", ncol(res)), names(res))
+    row3 <- setNames(rep("", ncol(df)), names(df))
     ld <- lipid_definition()
     chain_calcs <- lapply(ld$chains, calc_lipid_chain_masses)
     chain_cols  <- grep("chain", names(res))
@@ -1169,9 +1280,7 @@ app_server <- function(input, output, session) {
       else row3[cn] <- ""
       
     }
-    df[3,] <- row3
-    
-    colnames(df) <- gsub("[._]", " ", colnames(df))
+    df <- rbind(df, row3)    
     df <- t(df)
     
     
@@ -1227,15 +1336,6 @@ app_server <- function(input, output, session) {
  
   }, server = TRUE)
   
-  
-  
-  # catch checkbox toggles from the client
-  observeEvent(input$feature_checkbox_change, {
-    info <- input$feature_checkbox_change
-    current <- checked_features()
-    current[[as.character(info$id)]] <- isTRUE(info$checked)
-    checked_features(current)                     
-  }, ignoreInit = TRUE)
   
   output$interactive_spectrum <- renderPlotly({
     req(nrow(analysis_results$results) > 0)

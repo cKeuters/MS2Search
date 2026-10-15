@@ -73,6 +73,16 @@ mod_MetaboScape_auth_server <- function(id, r){
   })
 }
 
+
+#' @title Setting up MetaboScape connection
+#' 
+#' @description Uses a System variable to get the API key and connects to the
+#' API to create rapiclient operations.
+#'
+#' @return The operation functions to interact with the MetaboScape API.
+#'
+#' @import rapiclient
+#' @noRd
 getMetaboScapeConnection <- function(){
   print("loading MetaboScape data...")
   api_key <- Sys.getenv("METABOSCAPE_API_KEY")

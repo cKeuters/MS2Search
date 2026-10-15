@@ -82,6 +82,7 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
 #' @param spectra Spectra object of the ms2 spectra
 #' @param output_zip_path_file path where to save
 #'
+#' @importFrom jsonlite write_json
 #' @noRd
 setup_and_save_project <- function(settings_list, results, spectra, output_zip_path_file) {
   print(output_zip_path_file)
@@ -132,6 +133,8 @@ setup_and_save_project <- function(settings_list, results, spectra, output_zip_p
 #' from the csv file and the Spectra are loaded from the mgf.gz.
 #' 
 #' @param zip_path path to zip file
+#'
+#' @importFrom jsonlite fromJSON
 #'
 #' @noRd
 load_project <- function(zip_path) {
@@ -530,7 +533,7 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
 #' 
 #' @return The plotly figure.
 #' 
-#' @import plotly
+#' @importFrom plotly plot_ly add_segments layout 
 #' @importFrom grDevices rainbow
 #' @noRd
 plottingSpectra <- function(sp, feature_id, settings_list, results){
@@ -693,8 +696,7 @@ useRulesOnSpectrum <- function(spectrum, settings_list){
                                     values = masses, 
                                     tol_ppm = settings_list$basicFilters$tolerance_ppm, 
                                     tol_mz = settings_list$basicFilters$minimum_dalton)
-      if(retained_value == TRUE) mz_values <- masses
-      else mz_values <- NULL
+      mz_values <- !is.na(retained_value)
       
     }
     filter_results[[rule$label]] <- mz_values

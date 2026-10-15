@@ -12,8 +12,8 @@
 #'
 #' @return Returns a spectra object.
 #'
-#' @import Spectra
-#' @import MsBackendMgf
+#' @importFrom Spectra Spectra 
+#' @importFrom MsBackendMgf MsBackendMgf
 #' @noRd
 load_spectra <- function(ms2_file, add_log = NULL){
   
@@ -47,9 +47,9 @@ load_spectra <- function(ms2_file, add_log = NULL){
 #'
 #' @return Returns a dataframe containing the spectra information.
 #'
-#' @import S4Vectors
-#' @import future.apply
-#' @import purrr
+#' @importFrom S4Vectors DataFrame
+#' @importFrom future.apply future_lapply
+#' @importFrom purrr map list_rbind
 #' @import dplyr
 #' @noRd
 createSpectradf <- function(operations, featureTableId){
@@ -60,7 +60,11 @@ createSpectradf <- function(operations, featureTableId){
   projects <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
 
   all_feature_tables <- projects$experiments |>
-    map_dfr(~ .x$featureTables |> map_dfr(identity))
+    map(\(exp) {
+      map(exp$featureTables, identity) |> 
+        list_rbind()
+    }) |>
+    list_rbind()
   
   polarity <- all_feature_tables |>
     filter(id == featureTableId) |>
@@ -118,8 +122,9 @@ createSpectradf <- function(operations, featureTableId){
 #'
 #' @return Returns a dataframe with the results of each filter, chain and rule. 
 #'
-#' @import Spectra
-#' @import MsBackendMgf
+#' @importFrom Spectra filterMsLevel filterEmptySpectra spectraVariables spectraData rtime peaksData precursorMz
+#'  
+#' @importFrom MetaboCoreUtils calculateMass 
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
   #settings_list <- load_project("path/data/28.9.26_meeting2.zip")$settings_list
@@ -388,7 +393,9 @@ run_analysis <- function(settings_list, sp, add_log){
 #' @param sp A Spectra object containing the ms2 spectra information.
 #'
 #' @return Returns a Spectra object containing the ms2 spectra information including
-#' retentiontime as rtime. 
+#' retentiontime as rtime.
+#' 
+#' @importFrom Spectra spectraVariables
 #'
 #' @noRd
 getRT <- function(sp){
@@ -450,7 +457,7 @@ getRT <- function(sp){
 #' @return returns the values of the mz values in range of the tolerance to the 
 #' searched values. For sequences the highest value.
 #'
-#' @import MsCoreUtils
+#' @importFrom MsCoreUtils closest 
 #' @export
 find_neutralLosses <- function(peaks, precursor = NULL, values, losses_min = 1, 
                                losses_max = 1, tol_ppm = 10, tol_mz = 0.1, 
@@ -527,6 +534,8 @@ findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
 #'
 #' @return Returns the cleaned Spectra object.
 #'
+#' @importFrom MsCoreUtils noise smooth coefWMA
+#' @importFrom Spectra addProcessing filterIntensity
 #' @noRd
 cleaning_ref<- function(ms2, basicFilterValues){
   
@@ -582,7 +591,7 @@ cleaning_ref<- function(ms2, basicFilterValues){
 #'
 #' @return returns the calculated masses and formulas of the chains.
 #'
-#' @import MetaboCoreUtils
+#' @importFrom MetaboCoreUtils calculateMass
 #' @import stringr
 #' @noRd
 calc_lipid_chain_masses <- function(chains){

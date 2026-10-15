@@ -4,9 +4,9 @@
 #'     DO NOT REMOVE.
 #' @import shiny
 #' @import shinyFiles
-#' @import shinyWidgets
+# @import shinyWidgets
 #' @import splines
-#' @import bslib
+# @import bslib
 #' @noRd
 app_ui <- function(request) {
 	tagList(

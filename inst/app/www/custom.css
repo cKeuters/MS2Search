@@ -1306,3 +1306,24 @@ input:checked + .slider:before {
 .validation-block .adjustment-icon { opacity: 0.6; }
 
 .validation-block > .formula-term { white-space: nowrap; }
+
+
+
+/* flag picker */
+.flag-wrapper { position: relative; display: inline-block; }
+    .flag-picker {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      padding: 6px 10px;
+      display: flex;
+      gap: 10px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
+      z-index: 1000;
+    }
+    .flag-option { text-decoration: none; font-size: 1.2em; }
+    .flag-option:hover { transform: scale(1.2); }

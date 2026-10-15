@@ -497,9 +497,6 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     
     #return of the function
     reactive({
-      message("chain_state$modifications")
-      
-      message(chain_state$modifications)
       list(
         C_min = chain_state$C_min,
         C_max = chain_state$C_max,
