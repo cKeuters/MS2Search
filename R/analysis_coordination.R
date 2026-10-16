@@ -268,7 +268,7 @@ run_analysis <- function(settings_list, sp, add_log){
     # Chain filters
     #-----------------------------------------------------------------------------
     peaks_data <- peaksData(sp_cleaned)
-
+    print(settings_list$lipid_definition$chains)
     chain_id <- 1
     for(ld in settings_list$lipid_definition$chains){
       masses <- calc_lipid_chain_masses(ld)$mass
@@ -601,14 +601,17 @@ calc_lipid_chain_masses <- function(chains){
     use.names = FALSE
   )
   optional_mods <- optional_mods[optional_mods != ""]
+  optional_mods <- optional_mods[!is.na(optional_mods)]
+
+  
   required_mods <- unlist(
     lapply(chains$modifications, \(x) if (!x$optional) x$formula),
     use.names = FALSE
   )
-
   
   required_mods <- required_mods[!required_mods == ""]
   required_mods <- required_mods[!is.null(required_mods)]
+  required_mods <- required_mods[!is.na(required_mods)]
   
   mods_combinations <- unlist(
     lapply(
@@ -662,6 +665,7 @@ calc_lipid_chain_masses <- function(chains){
     combos$optional_mod
   )
   combos$formula <- gsub("=", "", combos$formula)
+
   combos$mass <- MetaboCoreUtils::calculateMass(combos$formula)
   
   if(is.null(optional_mods))combos[c("formula", "mass")]

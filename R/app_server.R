@@ -543,6 +543,7 @@ app_server <- function(input, output, session) {
       lipid_definition   = lipid_definition(),
       headgroup         = head_group()
     )
+    print(settings)
     
     prio <- c(settings$basicFilters$mz_priority, 
               settings$basicFilters$rt_priority, 
@@ -1275,7 +1276,26 @@ app_server <- function(input, output, session) {
       if(length(found > 0)){
         tol <- max(max(found) * basicFilterValues$tolerance_ppm / 1000000, basicFilterValues$minimum_dalton)
         near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
-        row3[cn] <- paste(all_data$formula[near], collapse = ", ")
+        
+        formulas <- lapply(all_data$formula[near], function(formula){
+          matches <- regmatches(formula, gregexpr("([A-Z][a-z]?)([0-9]*)", formula))[[1]]
+          element_counts <- as.data.frame(matches) %>%
+            tidyr::separate(1, 
+                     into = c("element", "count"), 
+                     sep = "(?<=[A-Za-z])(?=[0-9])"
+            ) %>% 
+            tidyr::replace_na(list(count = "1"))
+          
+          refined_formula <- ""
+          for(elem in unique(element_counts$element)){
+            elem_count <- sum(as.numeric(element_counts[which(element_counts$element == elem),"count"]))
+            print(elem_count)
+            refined_formula <- paste0(refined_formula, elem, ifelse(elem_count == 1, "", elem_count))
+          }
+          refined_formula
+        })
+        
+        row3[cn] <- paste(formulas, collapse = ", ")
       }
       else row3[cn] <- ""
       

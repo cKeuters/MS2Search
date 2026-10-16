@@ -158,13 +158,14 @@ load_project <- function(zip_path) {
           if (grepl("/", x, fixed = TRUE)) {
             as.numeric(strsplit(x, "/", fixed = TRUE)[[1]])
           } else {
-            x
+            as.numeric(x)
           }
         })
       } else {
         col
       }
     })
+    colnames(results) <- gsub("\\.", " ", colnames(results))
   }
   spectra <- NULL
   if (("spectra.mgf.gz" %in% list.files(tmp_dir))) {
@@ -537,30 +538,40 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
 #' @importFrom grDevices rainbow
 #' @noRd
 plottingSpectra <- function(sp, feature_id, settings_list, results){
-  rules <- settings_list$specific_filters
+  
   spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID")
   mz <- unlist(spectrum$mz)
   intensities <- unlist(spectrum$intensity)
   filtered_spectrum <- cleaning_ref(spectrum, settings_list$basicFilters)
-  mz_filtered <- unlist(filtered_spectrum$mz)
+
+  start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2) + 3
+  filter_results <- results[which(results$FEATURE_ID == feature_id), start_filtercols:(ncol(results)-1), drop = FALSE]
+  filter_results[["Intensity Filter"]] <- list(setdiff(mz, unlist(filtered_spectrum$mz)))
   
-  filter_results <- useRulesOnSpectrum(spectrum, settings_list)
-  filter_results[["Intensity Filter"]] <- setdiff(mz, mz_filtered)
-  
-  filter_priorities <- unlist(lapply(rules, function(x){x$priority}))
+  #Priorities of the rule, chain and validation filter. Adding a "low" priority for peaks outside the intensity filter
+  filter_priorities <- unlist(lapply(settings_list$specific_filters, function(x){x$rule_priority}))
+  filter_priorities <- c(filter_priorities, unlist(lapply(settings_list$lipid_definition$chains, function(x){x$priority})))
+  filter_priorities <- c(filter_priorities, unlist(lapply(settings_list$lipid_definition$validations, function(x){x$val_priority})))
   if(!is.null(filter_results[["Intensity Filter"]])) filter_priorities <- c(filter_priorities, "low")
   
   category <- resolve_filter_category(mz = mz,
                                       filter_results = filter_results,
-                                      filter_priority = filter_priorities,
-                                      tol = 1e-4)
-  levs <- sort(unique(unlist(lapply(rules, function(x){x$label}))))
+                                      filter_priority = filter_priorities)
+
+  
+  #Setting the colors for the categories
+  levs <- sort(unique(c(unlist(lapply(settings_list$specific_filters, function(x){x$label})),
+                      paste("chain", seq(length(settings_list$lipid_definition$chains)))) ))
   colors <- setNames(rainbow(length(levs)), levs)
   colors["none"] <- "#404040"
   colors["Intensity Filter"] <- "#D3D3D3"
+  category  <- factor(category , levels = c("none","Intensity Filter",levs ))
   
+  print(category)
+  print(colors)
+
   # ---- neutral losses -> shapes + annotations (hidden by default) ----
-  nl <- neutral_losses_from_results(results, feature_id, rules, spectrum, tol = 0.1)
+  nl <- neutral_losses_from_results(results, feature_id, settings_list$specific_filters, spectrum, tol = 0.1)
 
   shapes <- list(); annots <- list()
 
@@ -644,96 +655,49 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
 }
 
 
-#' @title Using the Rules on one spectrum
-#'
-#' @description Results are the same of the analysis results - function 
-#' obsolete.
-#' 
-#' @param spectrum A Spectra object with one spectrum.
-#' @param settings_list list of all setting parameters.
-#' 
-#' @return The results of the analysis.
-#' 
-#' @noRd
-useRulesOnSpectrum <- function(spectrum, settings_list){
-  rules <- settings_list$specific_filters
-  filter_results <- list()
-  denoised_spectrum <- cleaning_ref(spectrum,settings_list$basicFilters )
-  for(rule in rules){
-    
-    if(!rule$filter_noise) peaks_data <- peaksData(spectrum)[[1]]
-    else peaks_data <- peaksData(denoised_spectrum)[[1]]
-        
-    masses <- vapply(rule$entries, function(e) {
-      resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
-    }, numeric(1))
-    masses <- abs(as.numeric(masses[!is.na(masses)]))
-    if(!rule$is_mzPeak){
-      
-      #searching for one or multiple neutral losses
-      if(!rule$sequential){
-        rule$min_repeat = 1
-        rule$max_repeat = 1
-      }
-      
-      mz_values <-find_neutralLosses(
-            peaks = peaks_data[,"mz"],
-            precursor = spectrum$precursorMz[[1]],
-            values = masses,
-            losses_min = rule$min_repeat,
-            losses_max = rule$max_repeat,
-            rule_min_mz = rule$rule_mz_min,
-            rule_max_mz = rule$rule_mz_max,
-            tol_ppm = settings_list$basicFilters$tolerance_ppm,
-            tol_mz = settings_list$basicFilters$minimum_dalton,
-            just_after_precursor = rule$just_after_precursor
-          )
-      
-
-    }else{
-      #Searching for specific mz values in the ms2 data
-      retained_value <- findMZpeak(peaksData(spectrum)[[1]],
-                                    values = masses, 
-                                    tol_ppm = settings_list$basicFilters$tolerance_ppm, 
-                                    tol_mz = settings_list$basicFilters$minimum_dalton)
-      mz_values <- !is.na(retained_value)
-      
-    }
-    filter_results[[rule$label]] <- mz_values
-  }
-  filter_results
-}
 
 #' @title Ordering the filter results by priority
 #'
 #' @description For each mz peak in the spectrum the results are compared and
 #' from the fitting ones the filter name with the highest priority is taken.
 #' 
+#' @details
+#' Creates a Tuple of the name of the filters and their priority. Then goes through
+#' each mz value and compares the masses of the filter results to the mz value.
+#' If a filter has a match to the mz value, it is counted as a hit. At the end 
+#' the filter with the highest priority is selected for the mz value. After all
+#' mz values have a filter, their names are returned as category.
+#' 
+#' 
 #' @param mz The mz values of the spectrum
 #' @param filter_results results of the analysis
 #' @param filter_priority priority of the result filters
-#' @param tol tolerance in dalton (default 1e-4)
 #' 
-#' @return The names of the priotized rules for each mz value.
+#' @return The names of the prioritized rules for each mz value.
 #' 
 #' @noRd
-resolve_filter_category <- function(mz, filter_results, filter_priority, tol = 1e-4) {
+resolve_filter_category <- function(mz, filter_results, filter_priority) {
   priority_levels = c( "low","basic", "important", "required")
+  
   priority_tuples <- data.frame(
     name = names(filter_results),
     priority = filter_priority
   )
   
+  print(filter_results)
   sapply(mz, function(m) {
     hits <- names(filter_results)[
-      vapply(filter_results, function(vals) any(abs(vals - m) < tol), logical(1))
+      vapply(filter_results, function(vals) {
+        if(is.na(vals))return(logical(1))
+        any(abs(as.numeric(unlist(vals)) - m) == 0)}, logical(1))
     ]
+    print(hits)
     if (length(hits) == 0) return("none")
     
     priority_tuples <- priority_tuples[priority_tuples$name %in% hits,]
-    priority_tuples$name[
+    gsub("\\."," ",priority_tuples$name[
       which.max(match(priority_tuples$priority, priority_levels))
-    ]
+    ])
 
   })
 }

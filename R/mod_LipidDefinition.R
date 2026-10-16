@@ -123,15 +123,19 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     observeEvent(load_trigger(), {
       req(load_trigger())
       chains_to_load <- load_trigger()$chains
-      isolate({
-        for (chain in chains_to_load) {
-          tryCatch({
-            add_chain_to_ui(chain)
-          }, error = function(e) {
-            cat("ERROR in add_chain_to_ui:", conditionMessage(e), "\n")
-          })
-        }
-      })
+      
+      if(!is.null(chains_to_load)){
+        isolate({
+          for (chain in chains_to_load) {
+            tryCatch({
+              add_chain_to_ui(chain)
+            }, error = function(e) {
+              cat("ERROR in add_chain_to_ui:", conditionMessage(e), "\n")
+            })
+          }
+        })
+      }
+
     }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
     #-----------------------------------------------------------------------------
@@ -186,17 +190,22 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
     #if data was loaded, adds the validations to the UI
     observeEvent(load_trigger(), {
       req(load_trigger())
-      for(val_id in validation_ids()) remove_validation(val_id)
       vals_to_load <- load_trigger()$validations
-      isolate({
-        for (val in vals_to_load) {
-          tryCatch({
-            add_validation_to_ui(val)
-          }, error = function(e) {
-            cat("ERROR in add_validation_to_ui:", conditionMessage(e), "\n")
-          })
-        }
-      })
+      
+      if(!is.null(vals_to_load)){
+        for(val_id in validation_ids()) remove_validation(val_id)
+        
+        isolate({
+          for (val in vals_to_load) {
+            tryCatch({
+              add_validation_to_ui(val)
+            }, error = function(e) {
+              cat("ERROR in add_validation_to_ui:", conditionMessage(e), "\n")
+            })
+          }
+        })
+      }
+
     }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
     
@@ -445,10 +454,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
         where = "beforeEnd",
         ui = mod_chip_ui(ns, mid, init_mod)
       )
-      print("mid")
-      print(mid)
-      print("init_mod")
-      print(init_mod)
+
       register_mod_observers(mid, init_mod)
       mod_ids(mod_ids() + 1)
     }
