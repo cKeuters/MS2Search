@@ -700,9 +700,12 @@ resolve_filter_category <- function(mz, filter_results, filter_priority) {
 #' @import ggplot2
 #' @noRd
 plotMS1 <- function(ms1_data, selectedFeature){
+
   if(! selectedFeature %in% ms1_data$FEATURE_ID ) return()
-  
-  samples <- as.data.frame(ms1_data[, 12:ncol(ms1_data)])
+
+  if("MaxIntensity" %in% colnames(ms1_data)){
+    samples <- as.data.frame(ms1_data[, (which(colnames(ms1_data) == "MaxIntensity")+1):ncol(ms1_data)])
+  } else  samples <- as.data.frame(ms1_data[, 1:(ncol(ms1_data)-1)])
   rownames(samples) <- ms1_data$FEATURE_ID
   
   intensities <- samples[as.character(selectedFeature),]

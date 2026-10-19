@@ -134,10 +134,7 @@ app_server <- function(input, output, session) {
   
   brkrrba_save <- reactiveVal("")
 
-  ms1_data <- reactive({
-    req(input$ms1_file)
-    read_csv(input$ms1_file$datapath)
-  })
+  ms1_data <- reactiveVal(NULL)
   
   #MetaboScape Authentification and Projects
   metaboAuth <- reactiveValues(
@@ -234,6 +231,9 @@ app_server <- function(input, output, session) {
   observeEvent(input$mode,         { state$mode <- input$mode })
   observeEvent(input$project_name, { state$project_name <- input$project_name })
 
+  observeEvent(input$ms1_file,{
+    ms1_data(read_csv(input$ms1_file$datapath))
+  })
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Outputs and Buttons
@@ -560,8 +560,7 @@ app_server <- function(input, output, session) {
       cards             = all_cards_data(),
       lipid_definition   = lipid_definition()
       )
-    print(settings)
-    
+
     prio <- c(settings$basicFilters$mz_priority, 
               settings$basicFilters$rt_priority, 
               settings$basicFilters$n_peaks_priority)
@@ -734,8 +733,22 @@ app_server <- function(input, output, session) {
     MetaboSelectedProjectID(attr(table[[1]], "stId"))
     removeModal()
     state$newMS2data <- TRUE
+    getMetaboMS1data()
     MS2file_name(table[[1]][1])
   }))
+  
+  getMetaboMS1data <- function(){
+    MetaboScapeAPI <- getMetaboScapeConnection()
+    res <- MetaboScapeAPI$retrieveIntensityMatrix(MetaboSelectedProjectID())
+    IntensityMatrix <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
+    res <- operations$listAllSamples(featureTableId)
+    samples <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
+    
+    df <- as.data.frame(IntensityMatrix$intensities)
+    colnames(df) <- lapply(samples$analysis, function(x) x$name)[[1]]
+    df$FEATURE_ID <- seq(nrow(df))
+    ms1_data(df)
+  }
 
   observeEvent(input$setFlagsToMetaboScape,({
     res <- analysis_results$results
@@ -1306,7 +1319,6 @@ app_server <- function(input, output, session) {
           refined_formula <- ""
           for(elem in unique(element_counts$element)){
             elem_count <- sum(as.numeric(element_counts[which(element_counts$element == elem),"count"]))
-            print(elem_count)
             refined_formula <- paste0(refined_formula, elem, ifelse(elem_count == 1, "", elem_count))
           }
           refined_formula
