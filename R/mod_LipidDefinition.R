@@ -60,20 +60,14 @@ mod_LipidDefinition_ui <- function(id) {
 #' @return Returns a list with a chain list and a validation list.
 #' 
 #' @noRd 
-mod_LipidDefinition_server <- function(id, load_trigger, head_group){
+mod_LipidDefinition_server <- function(id, load_trigger){
   moduleServer(id, function(input, output, session){
     ns <- session$ns
     
+    head_group <- reactiveVal("")
+    
     observeEvent(input$headgroup, {
       head_group(input$headgroup)
-    })
-    
-    observeEvent(head_group(), {
-      updateTextInput(
-        session = session,
-        "headgroup",
-        value = head_group()
-      )
     })
 
     #-----------------------------------------------------------------------------
@@ -118,25 +112,7 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       next_chain_id(next_chain_id() + 1)
       
     }
-    
-    #if data was loaded, adds the new chains to the UI
-    observeEvent(load_trigger(), {
-      req(load_trigger())
-      chains_to_load <- load_trigger()$chains
-      
-      if(!is.null(chains_to_load)){
-        isolate({
-          for (chain in chains_to_load) {
-            tryCatch({
-              add_chain_to_ui(chain)
-            }, error = function(e) {
-              cat("ERROR in add_chain_to_ui:", conditionMessage(e), "\n")
-            })
-          }
-        })
-      }
 
-    }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
     #-----------------------------------------------------------------------------
     # Validations
@@ -187,9 +163,23 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
       add_validation_to_ui(empty_validation)
     })
     
-    #if data was loaded, adds the validations to the UI
+    
+    #---- if data was loaded, adds the chains and validations to the UI -----
     observeEvent(load_trigger(), {
       req(load_trigger())
+      chains_to_load <- load_trigger()$chains
+      
+      if(!is.null(chains_to_load)){
+        isolate({
+          for (chain in chains_to_load) {
+            tryCatch({
+              add_chain_to_ui(chain)
+            }, error = function(e) {
+              cat("ERROR in add_chain_to_ui:", conditionMessage(e), "\n")
+            })
+          }
+        })
+      }
       vals_to_load <- load_trigger()$validations
       
       if(!is.null(vals_to_load)){
@@ -205,7 +195,13 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
           }
         })
       }
-
+      
+      head_group(load_trigger()$head_group)
+      updateTextInput(
+        session = session,
+        "headgroup",
+        value = head_group()
+      )
     }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
     
@@ -221,7 +217,8 @@ mod_LipidDefinition_server <- function(id, load_trigger, head_group){
         lapply(validation_ids(), function(v){
           validation_modules[[v]]()
         })
-      })
+      }),
+      head_group = head_group()
       
     )
     })
@@ -268,8 +265,8 @@ chain_block_ui <- function(id, init_chain) {
         tags$label("C-Atoms"),
         div(
           class = "control-inputs",
-          numericInput(ns("c_min"), "min", value = init_chain$C_min, min = 1, max = 100, width = "62px"),
-          numericInput(ns("c_max"), "max", value = init_chain$C_max, min = 1, max = 100, width = "62px")
+          numericInput(ns("c_min"), "min", value = init_chain$C_min, min = 1, max = 100, step = 2, width = "62px"),
+          numericInput(ns("c_max"), "max", value = init_chain$C_max, min = 1, max = 100, step = 2, width = "62px")
         )
       ),
       div(

@@ -9,81 +9,105 @@
 # @import bslib
 #' @noRd
 app_ui <- function(request) {
-	tagList(
-		# Leave this function for adding external resources
-		golem_add_external_resources(),
-		shinyjs::useShinyjs(),
-		fluidPage(
-		  tags$link(rel = "stylesheet", type = "text/css", href = "custom.css"),
-		  create_topbar_InProject(),
-		    # --- Welcome Screen ---
-		    shinyjs::hidden(
-		      div(id = "welcome_screen",
-		          uiOutput("welcome_ui"))
-		    ),
-		    
-		    # --- Analysis Screen ---
-		  shinyjs::hidden(div(id = "analysis_screen",
-		        uiOutput("analysis_ui"), 
-		        mod_LipidDefinition_ui("LipidDefinition_1"),
-		        shinyjs::hidden(
-		          div(id = "cards_section",
-		              uiOutput("rule_coordination"),
-		              uiOutput("cards_ui", class = "cards-container"),
-		              div(id="cards_container", class = "cards-container")
-		          
-		        ),
-		        shinyjs::hidden(
-		          div(id = "analysis_footer",
-		              fluidRow(
-		                column(
-		                  12,
-		                  div(
-		                    style = "display:flex; justify-content:center; gap:10px;",
-		                    actionButton("run_analysis", "Run Analysis", class = "btn-primary btn-lg start-btn"),
-		                    div(downloadButton("export_brkrrba", "Export brkrrba", class = "btn-primary btn-lg start-btn"),
-		                        div(
-		                          style = "position:absolute; top:100%; left:0; width:100%; text-align:center;",
-		                          textOutput("saved_brkrrba")
-		                        )
-		                    )
-		                )
-		              )
-		          )
-		          )
-		        )
-		    )
-		    ),
-		  # --- Results Screen ---
-		  shinyjs::hidden(
-		    div(id = "results_screen", 
-		        uiOutput("results_ui"),
-		        fluidRow(
-		          column(
-		            width = 6,
-		            tags$details(
-		              tags$summary(
-		                class = "validation-summary",
-		                icon("filter"), "Filtering Table for Filters"
-		              ),
-		              checkboxGroupInput("filter_select", "Select Filters that have to be passed:", choices = NULL)
-		            ),
-		            DT::dataTableOutput("featureTable")
-		          ),
-		          column(
-		            width = 6,
-		            div(
-		              id = "detailPanel",
-		              class = "detail-panel",
-		              h4("Spectrum Details"),
-		              uiOutput("spectrumDetails")
-		            )
-		          )
-		        ))
-		  )
-		        )
-		)
-	)
+  tagList(
+    golem_add_external_resources(),
+    shinyjs::useShinyjs(),
+    
+    fluidPage(
+      tags$link(rel = "stylesheet", type = "text/css", href = "custom.css"),
+      create_topbar_InProject(),
+      
+      tabsetPanel(
+        id = "page",
+        type = "hidden",
+        
+        # ---- Main app ----
+        tabPanelBody(
+          "main",
+          
+          # Welcome screen
+          shinyjs::hidden(
+            div(id = "welcome_screen",
+                uiOutput("welcome_ui"))
+          ),
+          
+          # Analysis screen
+          shinyjs::hidden(
+            div(id = "analysis_screen",
+                uiOutput("analysis_ui"),
+                mod_LipidDefinition_ui("LipidDefinition_1"),
+                
+                shinyjs::hidden(
+                  div(id = "cards_section",
+                      uiOutput("rule_coordination"),
+                      uiOutput("cards_ui", class = "cards-container"),
+                      div(id = "cards_container", class = "cards-container"))
+                ),
+                
+                shinyjs::hidden(
+                  div(id = "analysis_footer",
+                      fluidRow(
+                        column(
+                          12,
+                          div(
+                            style = "display:flex; justify-content:center; gap:10px;",
+                            actionButton("run_analysis", "Run Analysis",
+                                         class = "btn-primary btn-lg start-btn"),
+                            div(
+                              downloadButton("export_brkrrba", "Export brkrrba",
+                                             class = "btn-primary btn-lg start-btn"),
+                              div(
+                                style = "position:absolute; top:100%; left:0; width:100%; text-align:center;",
+                                textOutput("saved_brkrrba")
+                              )
+                            )
+                          )
+                        )
+                      ))
+                )
+            )
+          ),
+          
+          # Results screen
+          shinyjs::hidden(
+            div(id = "results_screen",
+                uiOutput("results_ui"),
+                fluidRow(
+                  column(
+                    width = 6,
+                    tags$details(
+                      tags$summary(
+                        class = "validation-summary",
+                        icon("filter"), "Filtering Table for Filters"
+                      ),
+                      checkboxGroupInput("filter_select",
+                                         "Select Filters that have to be passed:",
+                                         choices = NULL)
+                    ),
+                    DT::dataTableOutput("featureTable")
+                  ),
+                  column(
+                    width = 6,
+                    div(id = "detailPanel", class = "detail-panel",
+                        h4("Spectrum Details"),
+                        uiOutput("spectrumDetails"))
+                  )
+                ))
+          )
+        ),
+        
+        # ---- About page ----
+        tabPanelBody(
+          "about",
+          tags$div(
+            class = "about-back-wrap",
+            actionLink("about_back", "← Back to app", class = "about-back")
+          ),
+          mod_about_ui("about_1")
+        )
+      )
+    )
+  )
 }
 
 #' Add external Resources to the Application

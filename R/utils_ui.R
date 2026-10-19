@@ -1,19 +1,29 @@
 
 #' @description Title and buttons for Saving Project and Return to Setup in the topbar
 #' @noRd
-create_topbar_InProject <- function(){
-  div(class = "top-bar",
-      #h2(class = "app-title","MS2Search - Analysis"),
+create_topbar_InProject <- function() {
+  div(
+    class = "top-bar",
+    div(class = "next-to-each-other",
       uiOutput("state_screen"),
+      
+      div(
+        class = "app-aboutButton",
+        actionLink(
+          "about_open",
+          "About",
+          class = "app-aboutButton-link"
+        )
+      )
+      ),
+     
       div(class= "top-bar-space top-bar-nav",
         actionButton("back_to_welcome", "Setup",
                      icon = icon("house"), class = "btn-default"),
         actionButton("back_to_analysis", "Analysis",
                      icon = icon("sliders"), class = "btn-default"),
-        conditionalPanel(
-          condition = "output.has_results",
-          actionButton("back_to_results", "Results",
-                     icon = icon("square-poll-horizontal"), class = "btn-default"))
+        actionButton("back_to_results", "Results",
+                     icon = icon("square-poll-horizontal"), class = "btn-default")
       ),
       div(class= "top-bar-space",
         downloadButton("export_project", "Save Project",

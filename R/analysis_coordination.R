@@ -305,16 +305,10 @@ run_analysis <- function(settings_list, sp, add_log){
         components <- lapply(chain_ids[!is.na(chain_ids)], function(id) calc_lipid_chain_masses(settings_list$lipid_definition$chains[[id]])$mass)
         combos <- do.call(expand.grid, components)
 
-        headgroupMass <- if(is.null(settings_list$chain_info$headgroup)||settings_list$chain_info$headgroup == "") 0 
-        else MetaboCoreUtils::calculateMass(settings_list$chain_info$headgroup)
+        headgroupMass <- if(is.null(settings_list$headgroup)||settings_list$headgroup == "") 0 
+        else calculate_adjustment_mass(settings_list$headgroup)
         
-        adjustmentMass <- 0
-
-        if(!is.null(val$adjustments) && val$adjustments != ""){
-          adjustments <- str_trim(unlist(strsplit(split = "-", val$adjustments)))
-          adjustment_masses <- unlist(lapply(adjustments, suppressWarnings(MetaboCoreUtils::calculateMass)))
-          adjustmentMass <- ifelse(is.na(adjustment_masses[1]), 0, adjustment_masses[1]) - sum(adjustment_masses[2:length(adjustment_masses)])
-        }
+        adjustmentMass <- calculate_adjustment_mass(val$adjustments)
         
         masses <- rowSums(combos) + adjustmentMass + if("Backbone" %in% val$components) headgroupMass else 0 
 
@@ -426,6 +420,28 @@ getRT <- function(sp){
     }
   }
   sp
+}
+
+#' @title Calculates the mass of the adjustment or backbone string.
+#' 
+#' @param adjustment A string of elements and "-".
+#'
+#' @return Returns the mass of the elements.
+#' 
+#' @importFrom MetaboCoreUtils calculateMass
+#'
+#' @noRd
+calculate_adjustment_mass <- function(adjustment){
+  
+  adjustmentMass <- 0
+  
+  if(!is.null(adjustment) && adjustment != ""){
+    adjustment <- str_trim(unlist(strsplit(split = "-", adjustment)))
+    adjustment_masses <- unlist(lapply(adjustment, suppressWarnings(MetaboCoreUtils::calculateMass)))
+    adjustmentMass <- ifelse(is.na(adjustment_masses[1]), 0, adjustment_masses[1]) - sum(adjustment_masses[2:length(adjustment_masses)])
+  }
+  
+  adjustmentMass
 }
 
 #' @title Finding neutral loss pattern 

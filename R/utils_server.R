@@ -12,12 +12,11 @@
 #' @param toolSettings external tool settings
 #' @param cards parameters of Rule cards
 #' @param lipid_definition parameters of chains and validations
-#' @param headgroup backbone / headgroup of chains
 #'
 #' @return Returns the list of all parameters
 #'
 #' @noRd
-create_settings_list <- function(state, basicFilterValues, toolSettings, cards, lipid_definition, headgroup = NULL){
+create_settings_list <- function(state, basicFilterValues, toolSettings, cards, lipid_definition){
   
   settings_list <- list(
     project_info = list(
@@ -26,12 +25,6 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
       mode = state$mode,
       out_dir = state$out_dir,
       screen = state$screen
-    ),
-    LipidIN_settings = list(
-      active = toolSettings$LipidIN,
-      priority = toolSettings$LipidIN_priority,
-      ppm1 = toolSettings$LipidIN_ppm1,
-      ppm2 = toolSettings$LipidIN_ppm2
     ),
     DreaMS_settings = list(
       active = toolSettings$DreaMS,
@@ -53,9 +46,6 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
       noiseFiltering_method = basicFilterValues$noiseFiltering_method,
       tolerance_ppm = basicFilterValues$tolerance_ppm,
       minimum_dalton = basicFilterValues$minimum_dalton
-    ),
-    chain_info = list(
-      headgroup = headgroup
     )
   )
   settings_list <- c(
@@ -354,7 +344,7 @@ create_brkrrba_file <- function(settings_list, file_path){
       list(
         name = "backbone",
         valueType = "formula",
-        value = ifelse(is.null(settings_list$chain_info$headgroup),"", settings_list$chain_info$headgroup)
+        value = ifelse(is.null(settings_list$head_group),"", settings_list$head_group)
       ),
       list(name = "numberOfChains",
            valueType = "int",
@@ -566,9 +556,6 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
   colors["none"] <- "#404040"
   colors["Intensity Filter"] <- "#D3D3D3"
   category  <- factor(category , levels = c("none","Intensity Filter",levs ))
-  
-  print(category)
-  print(colors)
 
   # ---- neutral losses -> shapes + annotations (hidden by default) ----
   nl <- neutral_losses_from_results(results, feature_id, settings_list$specific_filters, spectrum, tol = 0.1)
@@ -684,14 +671,12 @@ resolve_filter_category <- function(mz, filter_results, filter_priority) {
     priority = filter_priority
   )
   
-  print(filter_results)
   sapply(mz, function(m) {
     hits <- names(filter_results)[
       vapply(filter_results, function(vals) {
         if(is.na(vals))return(logical(1))
         any(abs(as.numeric(unlist(vals)) - m) == 0)}, logical(1))
     ]
-    print(hits)
     if (length(hits) == 0) return("none")
     
     priority_tuples <- priority_tuples[priority_tuples$name %in% hits,]

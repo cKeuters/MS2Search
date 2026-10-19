@@ -23,6 +23,7 @@ attachment::att_amend_desc()
 golem::add_module(name = "Rules", with_test = TRUE) # Name of the module
 golem::add_module(name = "LipidDefinition", with_test = TRUE) # Name of the module
 golem::add_module(name = "MetaboScape_auth", with_test = TRUE) # Name of the module
+golem::add_module(name = "About", with_test = FALSE) # Name of the module
 
 ## Add helper functions ----
 ## Creates fct_* and utils_*

@@ -133,8 +133,7 @@ app_server <- function(input, output, session) {
   log_text <- reactiveVal("")
   
   brkrrba_save <- reactiveVal("")
-  head_group <- reactiveVal("")
-  
+
   ms1_data <- reactive({
     req(input$ms1_file)
     read_csv(input$ms1_file$datapath)
@@ -328,11 +327,33 @@ app_server <- function(input, output, session) {
         basicFilterValues = reactiveValuesToList(basicFilterValues),
         toolSettings = reactiveValuesToList(ToolSettings),
         cards   = all_cards_data(), 
-        lipid_definition = lipid_definition(),
-        headgroup = head_group())
+        lipid_definition = lipid_definition())
       create_brkrrba_file(settings_list, file)
     }
   )
+  
+  #About Page
+    mod_about_server("about_1")
+    
+    observeEvent(
+      c(input$back_to_welcome, input$back_to_analysis, input$back_to_results),
+      {
+        updateTabsetPanel(session, "page", selected = "main")
+      },
+      ignoreInit = TRUE,
+      priority = 10 
+    )
+    
+    
+    observeEvent(input$about_open, {
+      updateTabsetPanel(session, "page", selected = "about")
+      shinyjs::runjs("window.scrollTo(0, 0);")  
+    })
+    
+    observeEvent(input$about_back, {
+      updateTabsetPanel(session, "page", selected = "main")
+    })
+    
   
   
   #-----------------------------------------------------------------------------
@@ -359,8 +380,7 @@ app_server <- function(input, output, session) {
         basicFilterValues = reactiveValuesToList(basicFilterValues),
         toolSettings = reactiveValuesToList(ToolSettings),
         cards   = all_cards_data(), 
-        lipid_definition = lipid_definition(),
-        headgroup = head_group()),
+        lipid_definition = lipid_definition()),
         analysis_results$results,
         analysis_results$spectra,
         file)
@@ -410,8 +430,6 @@ app_server <- function(input, output, session) {
     basicFilterValues$tolerance_ppm <- bf$tolerance_ppm
     basicFilterValues$minimum_dalton <- bf$minimum_dalton
     
-    head_group(settings_list$chain_info$headgroup)
-
     for(rule in settings_list$specific_filters){
       id <- next_card_id()
       rule$id <- id
@@ -493,7 +511,7 @@ app_server <- function(input, output, session) {
   
   lipid_load_trigger <- reactiveVal(NULL)
   
-  lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1", lipid_load_trigger, head_group)
+  lipidDefinitionServer <- mod_LipidDefinition_server("LipidDefinition_1", lipid_load_trigger)
   
   lipid_definition <- reactive({
     lipidDefinitionServer()
@@ -540,9 +558,8 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings      = reactiveValuesToList(ToolSettings),
       cards             = all_cards_data(),
-      lipid_definition   = lipid_definition(),
-      headgroup         = head_group()
-    )
+      lipid_definition   = lipid_definition()
+      )
     print(settings)
     
     prio <- c(settings$basicFilters$mz_priority, 
@@ -1365,8 +1382,8 @@ app_server <- function(input, output, session) {
       basicFilterValues = reactiveValuesToList(basicFilterValues),
       toolSettings = reactiveValuesToList(ToolSettings),
       cards   = all_cards_data(), 
-      lipid_definition = lipid_definition(),
-      headgroup = head_group())
+      lipid_definition = lipid_definition()
+      )
     plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list, analysis_results$results)
     
   })
