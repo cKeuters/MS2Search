@@ -941,7 +941,11 @@ app_server <- function(input, output, session) {
         column(width = 6,
                div(
                  class = "card analysis-card",
-                 div(class = "card-title", "MS2 Noise Filtering"),
+                 
+                 div(class = "card-title", 
+                     actionButton("button_MS2_intensities", NULL, icon = icon("square-poll-vertical")),
+                     "MS2 Noise Filtering"),
+                 
                  div(                  
                    class = "basic-filter-container",
 
@@ -990,6 +994,7 @@ app_server <- function(input, output, session) {
                                 choiceValues = c("MAD", "SuperSmoother", "wma", "none"),
                                 selected = basicFilterValues$noiseFiltering_method)
                  )))
+                 
 
                )
       
@@ -998,6 +1003,48 @@ app_server <- function(input, output, session) {
     )
     
     })
+  
+  observeEvent(input$button_MS2_intensities, {
+
+    showModal(modalDialog(
+      
+      title = "Histogram of MS2 intensities",
+      plotOutput(outputId = "distPlot")
+      
+      
+      ,easyClose = TRUE
+    ))
+  })
+  
+  output$distPlot <- renderPlot({
+    ms2_path <- input$ms2_file$datapath
+    SelectedProjectID <- MetaboSelectedProjectID()
+    
+    if(state$newMS2data){
+      if(!is.null(ms2_path)) {
+        analysis_results$spectra <- load_spectra(ms2_path)
+        state$newMS2data <- FALSE
+        }
+      else if(SelectedProjectID != ""){
+        MetaboScapeAPI <- getMetaboScapeConnection()
+        
+        featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
+        analysis_results$spectra <- Spectra(featureTable)
+        state$newMS2data <- FALSE
+      } 
+      else {
+        showNotification("No MS2 data", type = "warning")
+        return()
+      }
+    }
+    hist_data <- data.frame(unlist(peaksData(analysis_results$spectra))[,"intensity"])
+    colnames(hist_data) <- "intensity"
+    
+    ggplot(hist_data, aes(intensity)) +
+      geom_histogram() +
+      scale_x_log10()
+  })
+  
   
   output$rule_coordination <- renderUI({ 
     div(

@@ -56,7 +56,7 @@ createSpectradf <- function(operations, featureTableId){
   res <- operations$retrieveFeatureTable(featureTableId = featureTableId)
   featureTable <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
   
-  res <- MetaboScapeAPI$listAllProjects()
+  res <- operations$listAllProjects()
   projects <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
 
   all_feature_tables <- projects$experiments |>
