@@ -466,50 +466,93 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
   for (col in filter_cols) {
     cell <- row[[col]][1]
 
-    val  <- paste(unlist(cell), collapse = " ")
-    
-    if (is.na(val) || !nzchar(val) || val == "NA") next
+    val <- unlist(cell)
 
     r_idx <- which(rule_names == col)
 
     if (length(r_idx) == 0) r_idx <- which(rule_names == sub("\\.[0-9]+$", "", col))
     if (length(r_idx) == 0) next 
     rule <- rules[[r_idx]]
+    if(!rule$sequential){
+      rule$min_repeat = 1
+      rule$max_repeat = 1
+    }
 
-    label    <- rule$label
-    
-    found    <- as.numeric(regmatches(val, gregexpr("[0-9]+\\.?[0-9]*", val))[[1]])
     masses <- vapply(rule$entries, function(e) {
       resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
     }, numeric(1))
     searched <- abs(as.numeric(masses[!is.na(masses)]))
+    mz <- sort(cand_mz)
+    for (f in val) {
 
-    for (f in found) {
-      j <- which.min(abs(mz - f))            # snap to the real found peak
-      if (abs(mz[j] - f) > tol) next
-      
-      for (m in searched) {
-        for (target in c(mz[j] - m, mz[j] + m)) {   # partner below or above
-          d <- abs(cand_mz - target)
-          p <- which.min(d)
-          if (d[p] > tol) next
-          if (abs(cand_mz[p] - mz[j]) < tol) next    # skip self
+      for(count in seq(rule$max_repeat,rule$min_repeat)){
+        searched_grid <- do.call(expand.grid, rep(list(searched), count))
+        target <- sort(f - rowSums(searched_grid))
+        
+        idx <- closest(target, mz, tolerance = tol)
+        mz_hits <- mz[idx]
+        masses_hits <- searched_grid[which((f - rowSums(searched_grid)) %in% target[!is.na(idx)]),]
+        
+        if (is.data.frame(masses_hits) && nrow(masses_hits) > 0){
           
-          out[[length(out) + 1]] <- data.frame(
-            mz_found = mz[j],      int_found = int[j],
-            mz_partner = cand_mz[p], int_partner = cand_int[p],
-            mass = m, delta = abs(cand_mz[p] - mz[j]), label = label
-          )
+          #looking if the neutral losses in between can be found as peaks
+          for(count_between in seq(1,count-1)){
+
+            searched_grid <- searched_grid[,-1, drop = FALSE]
+            rowsums <- if (is.data.frame(searched_grid)) rowSums(searched_grid) else searched_grid
+            target <- sort(f - rowsums)
+            
+            idx_between <- closest(target, mz, tolerance = tol)
+            mz_hits_between <- mz[idx_between]
+            
+            masses_hits_between <- searched_grid[which((f - rowsums) %in% target[!is.na(idx_between)]),]
+
+            if (NROW(masses_hits_between) == 0){
+              masses_hits <- NULL
+              break
+            } 
+          }
+          
+          if (NROW(masses_hits_between) > 0 && NROW(masses_hits) > 0) break
+        }else if(!is.data.frame(masses_hits) && length(masses_hits) > 0)break   
+        
         }
-      }
+      if (NROW(masses_hits) == 0) next
+      
+
+      # cat("mz_found:", length(f), "\n")
+      # cat("int_found:", length(cand_int[which(cand_mz == f)]), "\n")
+      # cat("mz_partner:", length(mz_hits[!is.na(mz_hits)]), "\n")
+      # print(mz_hits[!is.na(mz_hits)][1])
+      # cat("int_partner:", length(cand_int[which(cand_mz %in% mz_hits[!is.na(mz_hits)])]), "\n")
+      # cat("delta:", length(if (is.data.frame(masses_hits)) rowSums(masses_hits) else masses_hits), "\n")
+      # print(ifelse(is.data.frame(masses_hits), rowSums(masses_hits), masses_hits))
+      # cat("label:", length(rule$label), "\n")
+      
+      
+      out[[length(out) + 1]] <- data.frame(
+        mz_found = f,
+        int_found = cand_int[which(cand_mz == f)],
+        mz_partner = mz_hits[!is.na(mz_hits)][1],
+        int_partner = cand_int[which(cand_mz %in% mz_hits[!is.na(mz_hits)])],
+        delta = ifelse(is.data.frame(masses_hits), rowSums(masses_hits), masses_hits),
+        label = rule$label
+      )
+      
+      if (is.data.frame(masses_hits) && NROW(masses_hits) == 1) {
+        result <- unlist(masses_hits[1, ])
+      } else if(is.data.frame(masses_hits)){
+        result <- masses_hits$Var1
+      }else result <- masses_hits
+      
+      out[[length(out)]]$masses <- list(result)
+       
     }
   }
+
   if (length(out) == 0) return(NULL)
-  res <- do.call(rbind, out)
-  # remove duplicates (same pair found from both ends)
-  key <- paste(pmin(res$mz_found, res$mz_partner),
-               pmax(res$mz_found, res$mz_partner), res$mass)
-  res[!duplicated(key), , drop = FALSE]
+  do.call(rbind, out)
+  
 }
 
 #' @title Plotting one spectrum
@@ -558,7 +601,7 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
   category  <- factor(category , levels = c("none","Intensity Filter",levs ))
 
   # ---- neutral losses -> shapes + annotations (hidden by default) ----
-  nl <- neutral_losses_from_results(results, feature_id, settings_list$specific_filters, spectrum, tol = 0.1)
+  nl <- neutral_losses_from_results(results, feature_id, settings_list$specific_filters, spectrum, tol = settings_list$basicFilters$minimum_dalton)
 
   shapes <- list(); annots <- list()
 
@@ -577,11 +620,21 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
         line = list(color = col, width = 1.5, dash = "dot"),
         visible = FALSE
       )
+      #Text for neutral losses
+
+      mass_counts <- table(unlist(nl$masses[i]))
+      print(mass_counts)
+      annotation_txt <- if (sum(mass_counts) > 1) {
+        paste(paste0(mass_counts, "x ", names(mass_counts)), collapse = ", ")
+      } else {
+        names(mass_counts)
+      }
+      
       annots[[i]] <- list(
         x = (nl$mz_found[i] + nl$mz_partner[i]) / 2,
         y = y, yshift = 8,
         xref = "x", yref = "y",
-        text = nl$mass[i],
+        text = annotation_txt,
         showarrow = FALSE, font = list(size = 10, color = col),
         visible = FALSE
       )
