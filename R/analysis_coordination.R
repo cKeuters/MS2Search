@@ -629,17 +629,18 @@ calc_lipid_chain_masses <- function(chains){
   required_mods <- required_mods[!is.null(required_mods)]
   required_mods <- required_mods[!is.na(required_mods)]
   
-  mods_combinations <- unlist(
-    lapply(
-      0:length(optional_mods),
-      function(k) {
-        combn(optional_mods, k, simplify = FALSE)
-      }
-    ),
-    recursive = FALSE
+  mods_combinations <- c(
+    list(""),
+    unlist(
+      lapply(
+        seq_along(optional_mods),
+        function(k) combn(optional_mods, k, simplify = FALSE)
+      ),
+      recursive = FALSE
+    )
   )
   if(length(mods_combinations) == 0) mods_combinations <- ""
-
+  
   combos <- expand.grid(
     C = seq(
       from = ifelse(chains$even_steps, 
@@ -651,11 +652,9 @@ calc_lipid_chain_masses <- function(chains){
     DB = chains$DB_min:chains$DB_max,
     optional_mod = mods_combinations
   )
-  
   mod_H_correction <- length(required_mods)
   
-  combos$H <- (2 * combos$C) +2 - (2 * combos$DB) - mod_H_correction
-  
+  combos$H <- (2 * combos$C) + 2 - (2 * combos$DB) - mod_H_correction
   
   combos$formula <- mapply(
     function(C, H, optional_mod) {
@@ -666,9 +665,8 @@ calc_lipid_chain_masses <- function(chains){
       )
       
       modDB <- sum(mod_DB, na.rm = TRUE)
-      
-      mod_len <- length(optional_mod)
-      
+      mod_len <- ifelse(optional_mod == "", 0, length(optional_mod))
+
       paste0(
         "C", C,
         "H", H - mod_len - modDB,
@@ -682,8 +680,27 @@ calc_lipid_chain_masses <- function(chains){
   )
   combos$formula <- gsub("=", "", combos$formula)
 
-  combos$mass <- MetaboCoreUtils::calculateMass(combos$formula)
   
+  combos$formula <- unlist(lapply(combos$formula, function(formula){
+    matches <- regmatches(formula, gregexpr("([A-Z][a-z]?)([0-9]*)", formula))[[1]]
+    element_counts <- as.data.frame(matches) %>%
+      tidyr::separate(1, 
+                      into = c("element", "count"), 
+                      sep = "(?<=[A-Za-z])(?=[0-9])"
+      ) %>% 
+      tidyr::replace_na(list(count = "1"))
+    
+    refined_formula <- ""
+    for(elem in unique(element_counts$element)){
+      elem_count <- sum(as.numeric(element_counts[which(element_counts$element == elem),"count"]))
+      refined_formula <- paste0(refined_formula, elem, ifelse(elem_count == 1, "", elem_count))
+    }
+    refined_formula
+  }))
+
+  combos$mass <- MetaboCoreUtils::calculateMass(combos$formula)
+  combos <- unique(combos)
+
   if(is.null(optional_mods))combos[c("formula", "mass")]
   else combos[c("formula", "optional_mod", "mass")]
 }

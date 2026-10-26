@@ -1376,3 +1376,76 @@ input:checked + .slider:before {
 
 .about-back:hover { text-decoration: underline; }
 
+
+/* -------- Result Button Toolbar ---------- */
+
+/* Main toolbar */
+.action-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    padding: 10px 16px;
+}
+
+/* Left and right sections */
+.toolbar-left,
+.toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* Remove Bootstrap's extra spacing */
+.action-toolbar .form-group {
+    margin-bottom: 0;
+}
+
+/* Input + Check button combined */
+.threshold-group {
+    display: flex;
+    align-items: center;
+}
+
+/* Make numeric input compact */
+.threshold-group .shiny-input-container {
+    width: 90px;
+    margin-bottom: 0;
+}
+
+/* Input field */
+.threshold-group input {
+    height: 40px;
+    border-radius: 8px 0 0 8px;
+    border-right: 0;
+    text-align: center;
+}
+
+/* Attached Check button */
+.threshold-group .btn {
+    height: 40px;
+    border-radius: 0 8px 8px 0;
+    margin-left: -1px;
+}
+
+/* Standard buttons */
+.toolbar-btn {
+    height: 40px;
+    border-radius: 8px;
+}
+
+/* Flag button */
+
+.toolbar-primary {
+    height: 40px;
+
+    background: #white !important;
+    border-color: #377eb8 !important;
+
+    border-radius: 8px !important;
+}
+
+.toolbar-primary:hover {
+    background: #2e6da4 !important;
+    border-color: #2e6da4 !important;
+}

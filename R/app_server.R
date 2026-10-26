@@ -741,7 +741,7 @@ app_server <- function(input, output, session) {
     MetaboScapeAPI <- getMetaboScapeConnection()
     res <- MetaboScapeAPI$retrieveIntensityMatrix(MetaboSelectedProjectID())
     IntensityMatrix <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
-    res <- operations$listAllSamples(featureTableId)
+    res <- MetaboScapeAPI$listAllSamples(MetaboSelectedProjectID())
     samples <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
     
     df <- as.data.frame(IntensityMatrix$intensities)
@@ -1073,20 +1073,54 @@ app_server <- function(input, output, session) {
   output$results_ui <- renderUI({
     tagList(
       verbatimTextOutput("log"),
-      div(class = "flex-distance",
-          div(class = "input-block",
-              numericInput("score_threshold", NULL, value = score_threshold(), min = 0,
-                           max = 1, step = 0.1)
-              ),
-          actionButton("set_score_threshold",   "Check"),
-          actionButton("uncheckAll",        "Uncheck all"),
-          br(),
+      
+      div(
+        class = "action-toolbar",
+        
+        div(
+          class = "toolbar-left",
+          
+          div(
+            class = "threshold-group",
+            
+            numericInput(
+              "score_threshold",
+              NULL,
+              value = score_threshold(),
+              min = 0,
+              max = 1,
+              step = 0.1
+            ),
+            
+            actionButton(
+              "set_score_threshold",
+              "Check",
+              class = "toolbar-btn"
+            )
+          ),
+          
+          actionButton(
+            "uncheckAll",
+            "Uncheck all",
+            class = "toolbar-btn"
+          )
+        ),
+        
+        div(
+          class = "toolbar-right",
+          
           div(class = "flag-wrapper",
               actionLink("changeFlagColor",
                          label = tags$i(class = "fa-solid fa-flag", style = flag_color()$rgb)),
               uiOutput("flag_picker")
           ),
-          actionButton("setFlagsToMetaboScape", "Set Flags to MetaboScape")
+          
+          actionButton(
+            "setFlagsToMetaboScape",
+            "Set Flags to MetaboScape",
+            class = "toolbar-primary"
+          )
+        )
       )
     )
   })
@@ -1290,11 +1324,22 @@ app_server <- function(input, output, session) {
   # Result Screen - Feature Details
   #-----------------------------------------------------------------------------
   
+  set_isotope_sum <- reactiveVal(FALSE)
+  
+  observeEvent(input$set_isotope_sum_Button,{
+    set_isotope_sum(!set_isotope_sum())
+  })
   
   output$filter_results_tableDT <- DT::renderDataTable({
     req(selected_feature_id())
     i   <- as.numeric(selected_feature_id())
     res <- analysis_results$results
+    
+    
+    if(set_isotope_sum()) {
+      spectrum <- get_spectrum_by_id(analysis_results$spectra, i, id_column = "FEATURE_ID")
+      res <- summarize_isotope_peaks(res, spectrum)}
+
     i_pos <- which(res$FEATURE_ID == i)
     res <- res[i_pos, 2:ncol(res), drop = FALSE]
     colnames(res) <- gsub("[\\._]", " ", colnames(res))
@@ -1354,24 +1399,9 @@ app_server <- function(input, output, session) {
         tol <- max(max(found) * basicFilterValues$tolerance_ppm / 1000000, basicFilterValues$minimum_dalton)
         near <- rowSums(abs(outer(all_data$mass, found, "-")) <= tol) > 0
         
-        formulas <- lapply(all_data$formula[near], function(formula){
-          matches <- regmatches(formula, gregexpr("([A-Z][a-z]?)([0-9]*)", formula))[[1]]
-          element_counts <- as.data.frame(matches) %>%
-            tidyr::separate(1, 
-                     into = c("element", "count"), 
-                     sep = "(?<=[A-Za-z])(?=[0-9])"
-            ) %>% 
-            tidyr::replace_na(list(count = "1"))
-          
-          refined_formula <- ""
-          for(elem in unique(element_counts$element)){
-            elem_count <- sum(as.numeric(element_counts[which(element_counts$element == elem),"count"]))
-            refined_formula <- paste0(refined_formula, elem, ifelse(elem_count == 1, "", elem_count))
-          }
-          refined_formula
-        })
+        formulas <- all_data$formula[near]
         
-        row3[cn] <- paste(formulas, collapse = ", ")
+        row3[cn] <- paste(unique(formulas), collapse = ", ")
       }
       else row3[cn] <- ""
       
@@ -1443,9 +1473,11 @@ app_server <- function(input, output, session) {
       cards   = all_cards_data(), 
       lipid_definition = lipid_definition()
       )
-    plottingSpectra(analysis_results$spectra, selected_feature_id(), settings_list, analysis_results$results)
+    plottingSpectra(analysis_results$spectra, selected_feature_id(), set_isotope_sum(), settings_list, analysis_results$results)
     
   })
+  
+
   
   output$ms1_plot <- renderPlot({
     req(selected_feature_id())
@@ -1491,6 +1523,7 @@ app_server <- function(input, output, session) {
         ),
         plotlyOutput("interactive_spectrum"),
         DT::dataTableOutput("filter_results_tableDT"),
+        actionButton("set_isotope_sum_Button", "Summarize Peaks"),
         plotOutput("ms1_plot")
       )
     })

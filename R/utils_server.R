@@ -484,16 +484,20 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
     searched <- abs(as.numeric(masses[!is.na(masses)]))
     mz <- sort(cand_mz)
     for (f in val) {
-
-      for(count in seq(rule$max_repeat,rule$min_repeat)){
+      if(is.na(f)) next
+      for (count in seq(rule$max_repeat, rule$min_repeat)) {
+        
         searched_grid <- do.call(expand.grid, rep(list(searched), count))
-        target <- sort(f - rowSums(searched_grid))
+        target <- f - rowSums(searched_grid)      # not sorted -> row r of grid = target[r]
         
-        idx <- closest(target, mz, tolerance = tol)
-        mz_hits <- mz[idx]
-        masses_hits <- searched_grid[which((f - rowSums(searched_grid)) %in% target[!is.na(idx)]),]
+        ord <- order(target)
+        idx <- integer(length(target))
+        idx[ord] <- closest(target[ord], mz, tolerance = tol)
+
+        hit_rows <- which(!is.na(idx))
+        if (length(hit_rows) == 0) next
         
-        if (is.data.frame(masses_hits) && nrow(masses_hits) > 0){
+        if (is.data.frame(hit_rows) && nrow(hit_rows) > 0){
           
           #looking if the neutral losses in between can be found as peaks
           for(count_between in seq(1,count-1)){
@@ -514,38 +518,27 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
           }
           
           if (NROW(masses_hits_between) > 0 && NROW(masses_hits) > 0) break
-        }else if(!is.data.frame(masses_hits) && length(masses_hits) > 0)break   
+        }else if(!is.data.frame(hit_rows) && length(hit_rows) > 0)break   
         
         }
-      if (NROW(masses_hits) == 0) next
-      
+      if (length(hit_rows) == 0) next
 
-      # cat("mz_found:", length(f), "\n")
-      # cat("int_found:", length(cand_int[which(cand_mz == f)]), "\n")
-      # cat("mz_partner:", length(mz_hits[!is.na(mz_hits)]), "\n")
-      # print(mz_hits[!is.na(mz_hits)][1])
-      # cat("int_partner:", length(cand_int[which(cand_mz %in% mz_hits[!is.na(mz_hits)])]), "\n")
-      # cat("delta:", length(if (is.data.frame(masses_hits)) rowSums(masses_hits) else masses_hits), "\n")
-      # print(ifelse(is.data.frame(masses_hits), rowSums(masses_hits), masses_hits))
-      # cat("label:", length(rule$label), "\n")
       
-      
-      out[[length(out) + 1]] <- data.frame(
-        mz_found = f,
-        int_found = cand_int[which(cand_mz == f)],
-        mz_partner = mz_hits[!is.na(mz_hits)][1],
-        int_partner = cand_int[which(cand_mz %in% mz_hits[!is.na(mz_hits)])],
-        delta = ifelse(is.data.frame(masses_hits), rowSums(masses_hits), masses_hits),
-        label = rule$label
-      )
-      
-      if (is.data.frame(masses_hits) && NROW(masses_hits) == 1) {
-        result <- unlist(masses_hits[1, ])
-      } else if(is.data.frame(masses_hits)){
-        result <- masses_hits$Var1
-      }else result <- masses_hits
-      
-      out[[length(out)]]$masses <- list(result)
+      for (r in hit_rows) {
+        # one row = one combination -> all its values; one variable -> just that value
+        masses <- unlist(searched_grid[r, , drop = FALSE], use.names = FALSE)
+        partner_mz <- mz[idx[r]]
+        
+        out[[length(out) + 1]] <- data.frame(
+          mz_found    = f,
+          int_found   = cand_int[which(cand_mz == f)][1],
+          mz_partner  = partner_mz,
+          int_partner = cand_int[which(cand_mz == partner_mz)][1],
+          delta       = sum(masses),
+          label       = rule$label
+        )
+        out[[length(out)]]$masses <- list(masses)
+      }
        
     }
   }
@@ -570,16 +563,18 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
 #' @importFrom plotly plot_ly add_segments layout 
 #' @importFrom grDevices rainbow
 #' @noRd
-plottingSpectra <- function(sp, feature_id, settings_list, results){
+plottingSpectra <- function(sp, feature_id, set_isotope_sum, settings_list, results){
   
   spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID")
   mz <- unlist(spectrum$mz)
   intensities <- unlist(spectrum$intensity)
   filtered_spectrum <- cleaning_ref(spectrum, settings_list$basicFilters)
+  if(set_isotope_sum) results <- summarize_isotope_peaks(results, spectrum)
 
   start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2) + 3
   filter_results <- results[which(results$FEATURE_ID == feature_id), start_filtercols:(ncol(results)-1), drop = FALSE]
   filter_results[["Intensity Filter"]] <- list(setdiff(mz, unlist(filtered_spectrum$mz)))
+  
   
   #Priorities of the rule, chain and validation filter. Adding a "low" priority for peaks outside the intensity filter
   filter_priorities <- unlist(lapply(settings_list$specific_filters, function(x){x$rule_priority}))
@@ -623,7 +618,6 @@ plottingSpectra <- function(sp, feature_id, settings_list, results){
       #Text for neutral losses
 
       mass_counts <- table(unlist(nl$masses[i]))
-      print(mass_counts)
       annotation_txt <- if (sum(mass_counts) > 1) {
         paste(paste0(mass_counts, "x ", names(mass_counts)), collapse = ", ")
       } else {
@@ -775,3 +769,34 @@ plotMS1 <- function(ms1_data, selectedFeature){
   
 }
 
+collapse_peaks <- function(x, mz, int, tol = 1.1) {
+  if (all(is.na(x))) return(NA_real_)          # keep NA cells as NA
+  x <- sort(unique(x[!is.na(x)]))
+  if (length(x) < 2) return(x)
+  
+  grp <- cumsum(c(TRUE, diff(x) >= tol))
+  
+  unname(vapply(split(x, grp), function(g) {
+    idx <- vapply(g, function(v) which.min(abs(mz - v)), integer(1))
+    g[which.max(int[idx])]
+  }, numeric(1)))
+}
+
+summarize_isotope_peaks <- function(results, spectrum) {
+  mz  <- unlist(spectrum$mz)
+  int <- unlist(spectrum$intensity)
+  
+  nm    <- gsub("\\.", " ", names(results))
+  first <- which(nm == "peakCount_filter") + 1
+  last  <- which(nm == "score") - 1
+  val_cols <- nm[first:last]
+  
+  results_collapsed <- results
+  for (j in seq_along(results)) {
+    if (nm[j] %in% val_cols) {
+      results_collapsed[[j]] <- lapply(results[[j]], collapse_peaks,
+                                       mz = mz, int = int, tol = 1.1)
+    }
+  }
+  results_collapsed
+}
