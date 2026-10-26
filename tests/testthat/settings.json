@@ -1,16 +1,10 @@
 {
     "project_info": {
-        "project_name": "project_2026-09-28_12-11-08",
-        "date": "2026-09-29",
+        "project_name": "project_2026-10-26_10-15-44",
+        "date": "2026-10-26",
         "mode": "pos",
         "out_dir": "/home/ckeuters",
         "screen": "Analysis"
-    },
-    "LipidIN_settings": {
-        "active": true,
-        "priority": "basic",
-        "ppm1": 10,
-        "ppm2": 50
     },
     "DreaMS_settings": {
         "active": true,
@@ -24,8 +18,8 @@
         "rt_max": 1000,
         "rt_priority": "required",
         "n_peaks_min": 3,
-        "n_peaks_max": 100,
-        "n_peaks_priority": "important",
+        "n_peaks_max": 1000,
+        "n_peaks_priority": "required",
         "min_filtering_type": "fixed",
         "fixed_threshold": 20,
         "percent_trehsold": {},
@@ -33,13 +27,10 @@
         "tolerance_ppm": 10,
         "minimum_dalton": 0.01
     },
-    "chain_info": {
-        "headgroup": ""
-    },
     "specific_filters": [
         {
             "id": 1,
-            "label": "Water losses",
+            "label": "Water Losses",
             "is_mzPeak": false,
             "input_type": "metabolite",
             "entries": [
@@ -50,12 +41,12 @@
             ],
             "next_entry_id": 2,
             "min_repeat": 2,
-            "max_repeat": 6,
+            "max_repeat": 3,
             "just_after_precursor": false,
             "filter_noise": true,
             "sequential": true,
             "next_card_id": {},
-            "rule_priority": "required",
+            "rule_priority": "basic",
             "rule_mz_min": null,
             "rule_mz_max": null
         },
@@ -63,20 +54,16 @@
             "id": 2,
             "label": "Glucose Loss",
             "is_mzPeak": false,
-            "input_type": "mass",
+            "input_type": "metabolite",
             "entries": [
                 {
                     "id": 1,
-                    "value": "162.0528"
-                },
-                {
-                    "id": 2,
-                    "value": "180.06377"
+                    "value": "Glucose"
                 }
             ],
-            "next_entry_id": 4,
-            "min_repeat": 0,
-            "max_repeat": 1,
+            "next_entry_id": 2,
+            "min_repeat": 2,
+            "max_repeat": 3,
             "just_after_precursor": false,
             "filter_noise": true,
             "sequential": false,
@@ -89,56 +76,54 @@
     "lipid_definition": {
         "chains": [
             {
-                "C_min": 14,
-                "C_max": 20,
+                "C_min": 16,
+                "C_max": 18,
+                "even_steps": true,
                 "DB_min": 0,
-                "DB_max": 4,
+                "DB_max": 3,
                 "priority": "basic",
                 "modifications": {
                     "mods_1": {
-                        "formula": "OH",
-                        "optional": true
+                        "formula": "NH3",
+                        "optional": false
                     },
                     "mods_2": {
                         "formula": "OH",
-                        "optional": true
+                        "optional": false
                     },
                     "mods_3": {
                         "formula": "OH",
-                        "optional": true
+                        "optional": false
                     },
                     "mods_4": {
-                        "formula": "NH3",
-                        "optional": false
+                        "formula": "OH",
+                        "optional": true
                     },
                     "mods_5": {
                         "formula": "OH",
                         "optional": true
-                    },
-                    "mods_6": {
-                        "formula": "OH",
-                        "optional": false
                     }
                 }
             },
             {
-                "C_min": 14,
-                "C_max": 22,
+                "C_min": 18,
+                "C_max": 26,
+                "even_steps": true,
                 "DB_min": 0,
-                "DB_max": 4,
+                "DB_max": 1,
                 "priority": "basic",
                 "modifications": {
-                    "mods_2": {
-                        "formula": "OH",
-                        "optional": true
-                    },
-                    "mods_5": {
+                    "mods_1": {
                         "formula": "NH3",
                         "optional": false
                     },
-                    "mods_1": {
+                    "mods_2": {
                         "formula": "=O",
                         "optional": false
+                    },
+                    "mods_3": {
+                        "formula": "OH",
+                        "optional": true
                     }
                 }
             }
@@ -154,6 +139,7 @@
                     "2"
                 ]
             }
-        ]
+        ],
+        "head_group": "-NH3"
     }
 }

@@ -3097,6 +3097,36 @@
       "Maintainer": "Hadley Wickham <hadley@posit.co>",
       "Repository": "RSPM"
     },
+    "rapiclient": {
+      "Package": "rapiclient",
+      "Version": "0.1.8",
+      "Source": "Repository",
+      "Type": "Package",
+      "Title": "Dynamic OpenAPI/Swagger Client",
+      "Authors@R": "c( person(\"Darko\", \"Bergant\", , \"darko.bergant@gmail.com\", \"aut\"), person(\"Marcel\", \"Ramos\", , \"marcel.ramos@sph.cuny.edu\", c(\"cre\", \"ctb\"), comment = c(ORCID = \"0000-0002-3242-0582\") ), person(\"Alexandru\", \"Mahmoud\", , , \"ctb\"), person(\"Sean\", \"Davis\", , , \"ctb\"), person(\"Martin\", \"Morgan\", , , \"ctb\") )",
+      "URL": "https://github.com/bergant/rapiclient",
+      "BugReports": "https://github.com/bergant/rapiclient/issues",
+      "Description": "Access services specified in OpenAPI (formerly Swagger) format. It is not a code generator. Client is generated dynamically as a list of R  functions.",
+      "Depends": [
+        "R (>= 3.3.0)"
+      ],
+      "License": "MIT + file LICENSE",
+      "Imports": [
+        "jsonlite",
+        "httr",
+        "tools",
+        "yaml"
+      ],
+      "Encoding": "UTF-8",
+      "RoxygenNote": "7.3.2",
+      "Suggests": [
+        "testthat"
+      ],
+      "NeedsCompilation": "no",
+      "Author": "Darko Bergant [aut], Marcel Ramos [cre, ctb] (<https://orcid.org/0000-0002-3242-0582>), Alexandru Mahmoud [ctb], Sean Davis [ctb], Martin Morgan [ctb]",
+      "Maintainer": "Marcel Ramos <marcel.ramos@sph.cuny.edu>",
+      "Repository": "https://p3m.dev/cran/latest"
+    },
     "rappdirs": {
       "Package": "rappdirs",
       "Version": "0.3.4",

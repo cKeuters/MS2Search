@@ -268,7 +268,7 @@ run_analysis <- function(settings_list, sp, add_log){
     # Chain filters
     #-----------------------------------------------------------------------------
     peaks_data <- peaksData(sp_cleaned)
-    print(settings_list$lipid_definition$chains)
+
     chain_id <- 1
     for(ld in settings_list$lipid_definition$chains){
       masses <- calc_lipid_chain_masses(ld)$mass
@@ -609,6 +609,7 @@ cleaning_ref<- function(ms2, basicFilterValues){
 #'
 #' @importFrom MetaboCoreUtils calculateMass
 #' @import stringr
+#' @importFrom tidyr extract
 #' @noRd
 calc_lipid_chain_masses <- function(chains){
   
@@ -654,6 +655,7 @@ calc_lipid_chain_masses <- function(chains){
   )
   mod_H_correction <- length(required_mods)
   
+  
   combos$H <- (2 * combos$C) + 2 - (2 * combos$DB) - mod_H_correction
   
   combos$formula <- mapply(
@@ -663,9 +665,13 @@ calc_lipid_chain_masses <- function(chains){
         paste0(c(optional_mod, required_mods)),
         "="
       )
-      
+
       modDB <- sum(mod_DB, na.rm = TRUE)
-      mod_len <- ifelse(optional_mod == "", 0, length(optional_mod))
+      mod_len <- if (length(optional_mod) == 0) {
+        0
+      } else {
+        length(optional_mod)
+      }
 
       paste0(
         "C", C,
@@ -680,16 +686,18 @@ calc_lipid_chain_masses <- function(chains){
   )
   combos$formula <- gsub("=", "", combos$formula)
 
-  
   combos$formula <- unlist(lapply(combos$formula, function(formula){
     matches <- regmatches(formula, gregexpr("([A-Z][a-z]?)([0-9]*)", formula))[[1]]
-    element_counts <- as.data.frame(matches) %>%
-      tidyr::separate(1, 
-                      into = c("element", "count"), 
-                      sep = "(?<=[A-Za-z])(?=[0-9])"
-      ) %>% 
-      tidyr::replace_na(list(count = "1"))
-    
+    element_counts <- data.frame(matches = matches) %>%
+      tidyr::extract(
+        matches,
+        into = c("element", "count"),
+        regex = "^([A-Za-z]+)([0-9]*)$"
+      ) %>%
+      dplyr::mutate(
+        count = dplyr::if_else(count == "", "1", count)
+      )
+
     refined_formula <- ""
     for(elem in unique(element_counts$element)){
       elem_count <- sum(as.numeric(element_counts[which(element_counts$element == elem),"count"]))

@@ -213,14 +213,15 @@ get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
 #' @param file_path path to save file
 #'
 #' @import dplyr
+#' @importFrom jsonlite toJSON
 #' @noRd
 create_brkrrba_file <- function(settings_list, file_path){
   
   searchedSpecies <- "CER"
   annotationName <- sprintf("%s {carbonsInAllChains}:{DBEinAllChains}", searchedSpecies )
   
-  chain_opt_mods <- unname(lapply(seq_along(settings_list$lipid_definition), function(i) {
-    x <- settings_list$lipid_definition[[i]]
+  chain_opt_mods <- unname(lapply(seq_along(settings_list$lipid_definition$chains), function(i) {
+    x <- settings_list$lipid_definition$chains[[i]]
     if(length(x$modifications) == 0)return(NULL)
     
     mods <- x$modifications
@@ -237,8 +238,8 @@ create_brkrrba_file <- function(settings_list, file_path){
     
   }))
 
-  chain_formulas <- lapply(seq_along(settings_list$lipid_definition), function(i) {
-    x <- settings_list$lipid_definition[[i]]
+  chain_formulas <- lapply(seq_along(settings_list$lipid_definition$chains), function(i) {
+    x <- settings_list$lipid_definition$chains[[i]]
 
     opt_mods <- lapply(x$modifications, function(m){if(m$optional) m$formula})
     opt_mods <- Filter(Negate(is.null), opt_mods)
@@ -254,9 +255,11 @@ create_brkrrba_file <- function(settings_list, file_path){
     
 
     formula <- paste0(
-      "C{carbonsPerChain", i, "} + H({carbonsPerChain", i, "}*2) - H({DBEPerChain", i, "}*2)",
-      if (length(req_mods) > 0)
-        paste0(paste0(" + ", paste(req_mods, collapse = " + ")), " - H",length(req_mods))
+      "C{carbonsPerChain", i, "} + H({carbonsPerChain", i, "}*2) + H2 - H({DBEPerChain", i, "}*2)",
+      if (length(req_mods) > 0){
+        matches <- regmatches(req_mods, gregexpr("([A-Z][a-z]?)([0-9]*)", req_mods))[[1]]
+        paste0(paste0(" + ", paste(matches, collapse = " + ")), " - H",length(req_mods))
+      }
       else "",
       if (length(opt_mods) > 0)
         paste0(
@@ -344,23 +347,23 @@ create_brkrrba_file <- function(settings_list, file_path){
       list(
         name = "backbone",
         valueType = "formula",
-        value = ifelse(is.null(settings_list$head_group),"", settings_list$head_group)
+        value = ifelse(is.null(settings_list$lipid_definition$head_group),"", settings_list$lipid_definition$head_group)
       ),
       list(name = "numberOfChains",
            valueType = "int",
-           value = length(settings_list$lipid_definition)
+           value = length(settings_list$lipid_definition$chains)
            ),
       list(
         name = "carbonsInAllChains",
         valueType = "intRange",
-        value = c(sum(unlist(lapply(settings_list$lipid_definition, function(x){x$C_min}))),
-                  sum(unlist(lapply(settings_list$lipid_definition, function(x){x$C_max}))))
+        value = c(sum(unlist(lapply(settings_list$lipid_definition$chains, function(x){x$C_min}))),
+                  sum(unlist(lapply(settings_list$lipid_definition$chains, function(x){x$C_max}))))
       ),
       list(
         name = "DBEinAllChains",
         valueType = "intRange",
-        value = c(sum(unlist(lapply(settings_list$lipid_definition, function(x){x$DB_min}))),
-                  sum(unlist(lapply(settings_list$lipid_definition, function(x){x$DB_max}))))
+        value = c(sum(unlist(lapply(settings_list$lipid_definition$chains, function(x){x$DB_min}))),
+                  sum(unlist(lapply(settings_list$lipid_definition$chains, function(x){x$DB_max}))))
       )
     ),
     unname(Map(function(x, i) {
@@ -370,8 +373,8 @@ create_brkrrba_file <- function(settings_list, file_path){
         value = c(x$C_min, x$C_max)
       )
     },
-    settings_list$lipid_definition,
-    seq_along(settings_list$lipid_definition)))
+    settings_list$lipid_definition$chains,
+    seq_along(settings_list$lipid_definition$chains)))
     ,
     unname(Map(function(x, i) {
       list(
@@ -380,8 +383,8 @@ create_brkrrba_file <- function(settings_list, file_path){
         value = c(x$DB_min, x$DB_max)
       )
     },
-    settings_list$lipid_definition,
-    seq_along(settings_list$lipid_definition))),
+    settings_list$lipid_definition$chains,
+    seq_along(settings_list$lipid_definition$chains))),
     do.call(c, chain_opt_mods)
     ),
     

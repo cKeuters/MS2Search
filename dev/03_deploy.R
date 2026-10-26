@@ -12,10 +12,12 @@
 ######################################
 
 # Test your app
+golem::set_golem_version("0.0.1")
 
 ## Run checks ----
 ## Check the package before sending to prod
 devtools::check()
+#usethis::use_package("rapiclient")
 
 ## add a classic token with "repo" and "workflow" permissions here:
 ## https://github.com/settings/personal-access-tokens/new

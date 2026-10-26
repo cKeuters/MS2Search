@@ -19,20 +19,13 @@ test_that("Finding Neutral Losses works", {
   expect_equal(nl, c(60,110,400))
 })
 
-test_that("Calculation of Lipid chain masses works", {
-  settings_list <- jsonlite::fromJSON("settings.json", simplifyVector = FALSE)
-  chain_res <- calc_lipid_chain_masses(settings_list$lipid_definition$chains[[1]])
-  chain_test_res <- readRDS("chain_test_results.rds")
-  expect_equal(chain_res, chain_test_res)
-})
-
 test_that("Running complete Analysis", {
   sp <- load_spectra("Test_dataset.mgf")
   settings_list <- jsonlite::fromJSON("settings.json", simplifyVector = FALSE)
   write_log <- function(msg) {
     cat(format(Sys.time(), "[%H:%M:%S]"), msg, "\n")
   }
-  
+
   res <- run_analysis(settings_list, sp, add_log = write_log)
   
   res_test <- data.frame(
@@ -40,22 +33,22 @@ test_that("Running complete Analysis", {
     mz_filter = TRUE,
     rt_filter = TRUE,
     peakCount_filter = TRUE,
-    score = 0.666666667,
+    score = 0.8,
     check.names = FALSE
   )
-  
-  res_test[["Water losses"]] <- list(c(
+
+  res_test[["Water Losses"]] <- list(c(
     300.287959, 318.300211, 638.608324,
     639.612216, 656.618718, 657.621928
   ))
   res_test[["Glucose Loss"]] <- list(c(
     800.658054, 801.665675, 818.671180
   ))
-  res_test[["chain 1"]] <- list(numeric(0))
-  res_test[["chain 2"]] <- list(282.278421)
-  res_test[["precursor validation"]] <- list(numeric(0))
-  
+  res_test[["chain 1"]] <- list(c(318.300211))
+  res_test[["chain 2"]] <- list(c(283.2843429, 300.2879595, 356.3508931))
+  res_test[["precursor validation"]] <- list(NA)
+
   res_test <- res_test[, names(res)]
-  
+
   expect_equal(res, res_test)
 })

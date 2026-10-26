@@ -6,7 +6,6 @@
 #' @import shinyFiles
 # @import shinyWidgets
 #' @import splines
-# @import bslib
 #' @noRd
 app_ui <- function(request) {
   tagList(
@@ -101,7 +100,7 @@ app_ui <- function(request) {
           "about",
           tags$div(
             class = "about-back-wrap",
-            actionLink("about_back", "← Back to app", class = "about-back")
+            actionLink("about_back", "\u2190 Back to app", class = "about-back")
           ),
           mod_about_ui("about_1")
         )
