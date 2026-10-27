@@ -9,11 +9,11 @@ RUN R -e 'install.packages("renv")'
 COPY renv.lock.prod renv.lock
 RUN mkdir -p "${RENV_PATHS_CACHE}" && chown -R rstudio:rstudio "${RENV_PATHS_CACHE}"
 USER rstudio
-RUN --mount=type=cache,id=renv-cache,target=${RENV_PATHS_CACHE} R -e 'renv::restore()'
+RUN --mount=type=cache,id=renv-cache,target=${RENV_PATHS_CACHE},uid=1000,gid=1000 R -e 'renv::restore()'
 FROM builder AS final
 COPY MS2Search_*.tar.gz /app.tar.gz
 RUN R -e 'remotes::install_local("/app.tar.gz",upgrade="never")'
 RUN rm /app.tar.gz
 EXPOSE 80
 USER rstudio
-CMD R -e "options('shiny.port'=80,shiny.host='0.0.0.0',golem.app.prod=TRUE);library(MS2Search);MS2Search::run_app()"
+CMD ["R", "-e", "options('shiny.port'=80,shiny.host='0.0.0.0',golem.app.prod=TRUE);library(MS2Search);MS2Search::run_app()"]
