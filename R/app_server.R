@@ -77,7 +77,7 @@ app_server <- function(input, output, session) {
     min_filtering_type = "fixed",
     fixed_threshold = 20,
     percent_treshold = 1,
-    noiseFiltering_method = "MAD",
+    noiseFiltering_method = "none",
     tolerance_ppm = 10,
     minimum_dalton = 0.01
   )
@@ -143,6 +143,7 @@ app_server <- function(input, output, session) {
     )
   MetaboScapeProjects <- reactiveVal(list())
   MetaboSelectedProjectID <- reactiveVal("")
+  MetaboAnnotationData <- reactiveVal(NULL)
   
   MS2file_name <- reactiveVal("")
   
@@ -734,6 +735,7 @@ app_server <- function(input, output, session) {
     removeModal()
     state$newMS2data <- TRUE
     getMetaboMS1data()
+    MetaboAnnotationData(getMetaboPrimaryAnnotation())
     MS2file_name(table[[1]][1])
   }))
   
@@ -749,6 +751,25 @@ app_server <- function(input, output, session) {
     df$FEATURE_ID <- seq(nrow(df))
     ms1_data(df)
   }
+  
+  # @title Get MetaboScape Primary Annotation  
+  #
+  # @return Returns the MetaboScape FeatureTable with MetaboScape Feature Id, primary annotation and annotation tool.
+  getMetaboPrimaryAnnotation <- function(){
+    MetaboScapeAPI <- getMetaboScapeConnection()
+    res <- MetaboScapeAPI$retrieveFeatureTable(featureTableId = MetaboSelectedProjectID())
+    featureTable <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
+    
+    data.frame(
+      id = featureTable$id,
+      primaryAnnotation.name = featureTable$primaryAnnotation$name,
+      primaryAnnotation.formula = featureTable$primaryAnnotation$formula,
+      primaryAnnotation.tool = featureTable$primaryAnnotation$tool
+      
+    )
+
+  }
+   
 
   observeEvent(input$setFlagsToMetaboScape,({
     res <- analysis_results$results
@@ -1486,6 +1507,9 @@ app_server <- function(input, output, session) {
     plotMS1(ms1_data(), selected_feature_id())
   })
   
+  
+
+  
   # feature details
     output$spectrumDetails <- renderUI({
       if (is.null(selected_feature_id())) {
@@ -1493,12 +1517,36 @@ app_server <- function(input, output, session) {
       }
       req(nrow(analysis_results$results) > 0)
       featureID <- as.numeric(selected_feature_id())
+      
+      
 
       spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]
       pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(analysis_results$spectra))[1]
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
   
+      if(!is.null(MetaboAnnotationData())){
+      }else{
+        calculated_formulas <- calculateFormulaFromMass(spectrum_info$precursorMz,unlist(spectrum_info[[adduct_col]])[1])
+        
+        annotationDetails <- data.frame(id = featureID, 
+                                        primaryAnnotation.formula = calculated_formulas$formula[1], 
+                                        primaryAnnotation.name = "-", 
+                                        primaryAnnotation.tool = "Decomposed Mass")
+      }
+
       tagList(
+        div(
+          class = "flex-distance",
+          div(class = "info-pill", strong("Formula: "),
+              annotationDetails$primaryAnnotation.formula
+          ),
+          div(class = "info-pill",strong("Name: "),
+              annotationDetails$primaryAnnotation.name
+          ),
+          div(class = "info-pill",strong("Tool: "),
+              annotationDetails$primaryAnnotation.tool
+          )
+        ),
         div(class = "detail-row",
           div(
               div(class = "detail-label", "Feature ID"),
@@ -1528,10 +1576,5 @@ app_server <- function(input, output, session) {
       )
     })
 
-    
-
-  
-
-  
 }
 

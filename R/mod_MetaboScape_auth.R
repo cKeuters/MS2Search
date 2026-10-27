@@ -90,10 +90,11 @@ getMetaboScapeConnection <- function(){
     showNotification("METABOSCAPE_API_KEY not set on this server", type = "error")
     return()
   }
-  bruker_api <- get_api(url = "http://ServerAddress/cxf/metaboscape/openapi.json")
+  bruker_api <- rapiclient::get_api(url = "http://ServerAddress/cxf/metaboscape/openapi.json")
+  print("Got Bruker API")
   bruker_api$basePath <- "/cxf/metaboscape"
-  
-  operations <- get_operations(bruker_api, .headers = c("api-key" = Sys.getenv("BRUKER_API_KEY")))
+  print("Bruker API basePath set")
+  operations <- rapiclient::get_operations(bruker_api, .headers = c("api-key" = Sys.getenv("BRUKER_API_KEY")))
   
 }
     

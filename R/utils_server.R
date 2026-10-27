@@ -803,3 +803,26 @@ summarize_isotope_peaks <- function(results, spectrum) {
   }
   results_collapsed
 }
+
+#-------------------------------------------------------------------------------
+# Result Detail calculations
+#-------------------------------------------------------------------------------
+
+#' @title Calculate Formula from mass
+#' 
+#' @param mass Mass for the formula calculation
+#' 
+#' @importFrom Rdisop decomposeMass
+#' @importFrom MetaboCoreUtils mz2mass
+#' @noRd
+calculateFormulaFromMass <- function(mass, adduct){
+  
+  neutral_mass <- mz2mass(mass, adduct = adduct)
+  formula_candidates <- decomposeMass(mass = neutral_mass, ppm = 5, z = 0)
+  #formula_candidates <- formula_candidates[formula_candidates$valid == "Valid"]
+  
+}
+
+
+
+

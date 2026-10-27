@@ -13,7 +13,6 @@ app_ui <- function(request) {
     shinyjs::useShinyjs(),
     
     fluidPage(
-      tags$link(rel = "stylesheet", type = "text/css", href = "custom.css"),
       create_topbar_InProject(),
       
       tabsetPanel(
@@ -128,7 +127,9 @@ golem_add_external_resources <- function() {
 		bundle_resources(
 			path = app_sys("app/www"),
 			app_title = "MS2Search"
-		)
+		),
+		tags$link(rel = "stylesheet", type = "text/css", href = "www/custom.css")
+		
 		# Add here other external resources
 		# for example, you can add shinyalert::useShinyalert()
 	)

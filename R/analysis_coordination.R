@@ -299,39 +299,51 @@ run_analysis <- function(settings_list, sp, add_log){
     if(length(settings_list$lipid_definition$chains) == 0){
       settings_list$lipid_definition$validations <- NULL
     }
+    else{
+      headgroupMass <- if(is.null(settings_list$headgroup)||settings_list$headgroup == "") 0 
+      else calculate_adjustment_mass(settings_list$headgroup)
+      
       for(val in settings_list$lipid_definition$validations){
         
-        chain_ids <- chain_ids <- suppressWarnings(as.numeric(val$components))
-        components <- lapply(chain_ids[!is.na(chain_ids)], function(id) calc_lipid_chain_masses(settings_list$lipid_definition$chains[[id]])$mass)
+        chain_ids <- val$components
+        chain_ids <- setdiff(chain_ids, "Backbone")
+        
+        print("chain_ids without Backbone")
+        print(chain_ids)
+        components <- lapply(chain_ids, function(id){
+          chain <- settings_list$lipid_definition$chains[
+            sapply(settings_list$lipid_definition$chains, `[[`, "chain_id") == id
+          ][[1]]
+          calc_lipid_chain_masses(chain)$mass}
+          )
+        print("components")
+        print(components)
         combos <- do.call(expand.grid, components)
-
-        headgroupMass <- if(is.null(settings_list$headgroup)||settings_list$headgroup == "") 0 
-        else calculate_adjustment_mass(settings_list$headgroup)
         
         adjustmentMass <- calculate_adjustment_mass(val$adjustments)
         
         masses <- rowSums(combos) + adjustmentMass + if("Backbone" %in% val$components) headgroupMass else 0 
-
+        
         found_mz <- lapply(peaks_data, findMZpeak,
-                                         values = masses, 
-                                         tol_ppm = settings_list$basicFilters$tolerance_ppm, 
-                                         tol_mz = settings_list$basicFilters$minimum_dalton)
+                           values = masses, 
+                           tol_ppm = settings_list$basicFilters$tolerance_ppm, 
+                           tol_mz = settings_list$basicFilters$minimum_dalton)
         retained_vector <- !is.na(found_mz)
-
+        
         add_log(paste0("Spectra after ",val$name,": ", sum(retained_vector)))
         
-     
+        
         results[[val$name]] <- found_mz
         
         if(val$val_priority == "required"){
-
+          
           results <- results[retained_vector,]
           sp <- sp[retained_vector,]
           sp_cleaned <- sp_cleaned[retained_vector,]
         }
-        
-        
       }
+    }
+
       
   #------------------------- creating dataframe  ----------------------
     priority_weights <- c(

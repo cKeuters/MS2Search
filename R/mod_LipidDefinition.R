@@ -76,8 +76,7 @@ mod_LipidDefinition_server <- function(id, load_trigger){
     
     chain_modules <- reactiveValues()
     chain_ids <- reactiveVal(character(0))
-    next_chain_id <- reactiveVal(1)
-    
+
     remove_chain <- function(cid) {
       cid <- as.character(cid)
       cat(paste("remove chain", cid))
@@ -88,12 +87,15 @@ mod_LipidDefinition_server <- function(id, load_trigger){
     }
     
     observeEvent(input$add_chain, {
-      add_chain_to_ui(init_chain = empty_chain)
+      chain <- empty_chain
+      chain$chain_id <- create_unique_ids()
+        
+      add_chain_to_ui(init_chain = chain)
     }, ignoreInit = TRUE)
     
     add_chain_to_ui <- function(init_chain){
       
-      cid <- as.character(next_chain_id())
+      cid <- init_chain$chain_id
       chain_ids(c(chain_ids(), cid))
       
       child_id <- paste0("chain_", cid)
@@ -109,8 +111,7 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       )
       
       chain_modules[[cid]] <- chain_block_server(child_id, cid, init_chain, remove_chain) 
-      next_chain_id(next_chain_id() + 1)
-      
+
     }
 
     
@@ -332,6 +333,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     #   \item{modifications}{List of modications added to the chain.}
     # }
     chain_state <- reactiveValues(
+      chain_id = init_chain$chain_id,
       C_min = init_chain$C_min,
       C_max = init_chain$C_max,
       even_steps = init_chain$even_steps,
@@ -501,6 +503,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     #return of the function
     reactive({
       list(
+        chain_id = chain_state$chain_id,
         C_min = chain_state$C_min,
         C_max = chain_state$C_max,
         even_steps = chain_state$even_steps,
@@ -711,7 +714,7 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
       
       # keep the choices in sync when chains are added/removed
       observe({
-        choices <- c("Backbone", chain_ids())
+        choices <- c("Backbone", seq(chain_ids()))
         for (i in sel_ids()) {
           cur <- isolate(input[[paste0("sel_", i)]])
           updateSelectInput(session, paste0("sel_", i), choices = choices,
@@ -724,7 +727,8 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
       if (fixed) {
         c("Backbone", chain_ids())
       } else {
-        unique(unlist(lapply(sel_ids(), function(i) input[[paste0("sel_", i)]])))
+        selected_ids <- as.numeric(unlist(lapply(sel_ids(), function(i) input[[paste0("sel_", i)]])))
+        chain_ids()[selected_ids]
       }
     })
     
@@ -802,6 +806,27 @@ build_chain_svg <- function(c_min, c_max, db_min = 0, db_max = 0) {
     '<svg viewBox="0 0 %d 70" width="100%%" height="70" class="lipid-chain-svg">%s%s</svg>',
     width, paste(segs, collapse = ""), paste(dots, collapse = "")
   )
+}
+
+#' Generate unique identifier
+#'
+#' @details
+#' https://samfirke.com/2018/08/22/generating-unique-ids-using-r/
+#' 
+#' @noRd
+create_unique_ids <- function(n = 1, char_len = 5){
+  
+  pool <- c(letters, LETTERS, 0:9)
+  
+  res <- character(n) # pre-allocating vector is much faster than growing it
+  for(i in seq(n)){
+    this_res <- paste0(sample(pool, char_len, replace = TRUE), collapse = "")
+    while(this_res %in% res){ # if there was a duplicate, redo
+      this_res <- paste0(sample(pool, char_len, replace = TRUE), collapse = "")
+    }
+    res[i] <- this_res
+  }
+  res
 }
 
 
