@@ -84,7 +84,7 @@ mod_MetaboScape_auth_server <- function(id, r){
 #' @import rapiclient
 #' @noRd
 getMetaboScapeConnection <- function(){
-  print("loading MetaboScape data...")
+  print("Setting up API connection...")
   api_key <- Sys.getenv("METABOSCAPE_API_KEY")
   if (identical(api_key, "")){
     showNotification("METABOSCAPE_API_KEY not set on this server", type = "error")
@@ -94,7 +94,7 @@ getMetaboScapeConnection <- function(){
   print("Got Bruker API")
   bruker_api$basePath <- "/cxf/metaboscape"
   print("Bruker API basePath set")
-  operations <- rapiclient::get_operations(bruker_api, .headers = c("api-key" = Sys.getenv("BRUKER_API_KEY")))
+  operations <- rapiclient::get_operations(bruker_api, .headers = c("api-key" = api_key))
   
 }
     

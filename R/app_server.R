@@ -37,7 +37,6 @@ app_server <- function(input, output, session) {
   # @keywords internal
   state <- reactiveValues(
     screen = "Setup",
-    out_dir = path.expand("~"),
     mode = "pos",
     project_name = "",
     newMS2data = TRUE
@@ -123,6 +122,7 @@ app_server <- function(input, output, session) {
   analysis_results <- reactiveValues(
     spectra = NULL,
     results = NULL,
+    res_settings = NULL,
     priorities = NULL,
     running = FALSE,
     log = NULL
@@ -382,6 +382,7 @@ app_server <- function(input, output, session) {
         toolSettings = reactiveValuesToList(ToolSettings),
         cards   = all_cards_data(), 
         lipid_definition = lipid_definition()),
+        analysis_results$res_settings,
         analysis_results$results,
         analysis_results$spectra,
         file)
@@ -393,6 +394,7 @@ app_server <- function(input, output, session) {
   observeEvent(input$load_project_file, {
     loaded_project <- load_project(input$load_project_file$datapath)
     settings_list <- loaded_project$settings_list
+    analysis_results$res_settings <- loaded_project$res_settings
     project_results <- loaded_project$results
     project_spectra <- loaded_project$spectra
     
@@ -561,6 +563,7 @@ app_server <- function(input, output, session) {
       cards             = all_cards_data(),
       lipid_definition   = lipid_definition()
       )
+    analysis_results$res_settings <- settings
 
     prio <- c(settings$basicFilters$mz_priority, 
               settings$basicFilters$rt_priority, 
@@ -1353,15 +1356,20 @@ app_server <- function(input, output, session) {
   
   output$filter_results_tableDT <- DT::renderDataTable({
     req(selected_feature_id())
-    i   <- as.numeric(selected_feature_id())
+    featureID  <- as.numeric(selected_feature_id())
     res <- analysis_results$results
     
     
-    if(set_isotope_sum()) {
-      spectrum <- get_spectrum_by_id(analysis_results$spectra, i, id_column = "FEATURE_ID")
-      res <- summarize_isotope_peaks(res, spectrum)}
+    spectrum <- get_spectrum_by_id(analysis_results$spectra, featureID, id_column = "FEATURE_ID")
+    settings_list <- analysis_results$res_settings
 
-    i_pos <- which(res$FEATURE_ID == i)
+    if(set_isotope_sum()) {
+      res <- summarize_isotope_peaks(res, spectrum)}
+    
+
+    nl <- neutral_losses_from_results(res, featureID, settings_list$specific_filters , spectrum, tol = settings_list$basicFilters$minimum_dalton)
+    
+    i_pos <- which(res$FEATURE_ID == featureID)
     res <- res[i_pos, 2:ncol(res), drop = FALSE]
     colnames(res) <- gsub("[\\._]", " ", colnames(res))
     
@@ -1375,7 +1383,7 @@ app_server <- function(input, output, session) {
     row1 <- ifelse(as.logical(df[1, ]), tick, cross)
     df[1,] <- row1
     
-    precursorMz <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == i]$precursorMz
+    precursorMz <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]$precursorMz
 
     #row 2 found values
     row2 <- vapply(res[,colnames(df)], function(x) {
@@ -1425,6 +1433,32 @@ app_server <- function(input, output, session) {
         row3[cn] <- paste(unique(formulas), collapse = ", ")
       }
       else row3[cn] <- ""
+      
+    }
+    # Row 3: Sequential neutral loss combinations
+    seq_nl_col <- lapply(settings_list$specific_filters, function(filter){
+      if(filter$sequential) filter$label else NULL
+    })
+    
+    seq_nl_col <- Filter(Negate(is.null), seq_nl_col)
+    seq_nl_col <- unlist(seq_nl_col)
+    
+    print(nl)
+    for (col_name in seq_nl_col) {
+      filtered_nl <- nl[nl$label == col_name,]
+      
+      annotation_txt <- list()
+      for(nl_row in seq_len(nrow(filtered_nl))){
+        mass_counts <- table(unlist(filtered_nl$masses[nl_row]))
+        txt <- if (sum(mass_counts) > 1) {
+          paste0(round(as.numeric(filtered_nl$mz_found[nl_row]), 2),": ",paste(paste0(mass_counts, "x ", names(mass_counts)), collapse = ", "))
+        } else {
+          names(mass_counts)
+        }
+        annotation_txt <- c(annotation_txt, txt)
+      }
+
+      row3[col_name] <- paste(annotation_txt, collapse = "; ")
       
     }
     df <- rbind(df, row3)    
@@ -1487,13 +1521,7 @@ app_server <- function(input, output, session) {
   output$interactive_spectrum <- renderPlotly({
     req(nrow(analysis_results$results) > 0)
     req(selected_feature_id())
-    settings_list <- create_settings_list(
-      state = reactiveValuesToList(state),
-      basicFilterValues = reactiveValuesToList(basicFilterValues),
-      toolSettings = reactiveValuesToList(ToolSettings),
-      cards   = all_cards_data(), 
-      lipid_definition = lipid_definition()
-      )
+    settings_list <- analysis_results$res_settings
     plottingSpectra(analysis_results$spectra, selected_feature_id(), set_isotope_sum(), settings_list, analysis_results$results)
     
   })
@@ -1523,7 +1551,7 @@ app_server <- function(input, output, session) {
       spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]
       pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(analysis_results$spectra))[1]
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
-  
+      
       if(!is.null(MetaboAnnotationData())){
       }else{
         calculated_formulas <- calculateFormulaFromMass(spectrum_info$precursorMz,unlist(spectrum_info[[adduct_col]])[1])

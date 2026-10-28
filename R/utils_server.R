@@ -74,7 +74,7 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
 #'
 #' @importFrom jsonlite write_json
 #' @noRd
-setup_and_save_project <- function(settings_list, results, spectra, output_zip_path_file) {
+setup_and_save_project <- function(settings_list, res_settings, results, spectra, output_zip_path_file) {
   print(output_zip_path_file)
   tmp_dir <- tempfile("CeraSearch_save_dir")
   dir.create(tmp_dir)
@@ -100,6 +100,9 @@ setup_and_save_project <- function(settings_list, results, spectra, output_zip_p
     }
     results <- lapply(results, convert_list)
     write.csv(as.data.frame(results), row.names = FALSE, file.path(tmp_dir, "results.csv"))
+    
+    jsonlite::write_json(res_settings, file.path(tmp_dir, "res_settings.json"), auto_unbox = TRUE)
+    
   }
   
 
@@ -137,7 +140,13 @@ load_project <- function(zip_path) {
     file.path(tmp_dir, "settings.json"),
     simplifyVector = FALSE  
   )
-  
+  res_settings <- NULL
+  if (("res_settings.json" %in% list.files(tmp_dir))) {
+    res_settings <- jsonlite::fromJSON(
+      file.path(tmp_dir, "res_settings.json"),
+      simplifyVector = FALSE  
+    )
+  }
   results <- NULL
   if (("results.csv" %in% list.files(tmp_dir))) {
     results <- read.csv(file.path(tmp_dir, "results.csv"))
@@ -163,7 +172,7 @@ load_project <- function(zip_path) {
   }
   message("File loaded")
   unlink(tmp_dir, recursive = TRUE)
-  return(list(settings_list = settings_list, results = results, spectra = spectra))
+  return(list(settings_list = settings_list, res_settings = res_settings, results = results, spectra = spectra))
 }
 
 
@@ -453,18 +462,20 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
   }
   
   row <- results[results$FEATURE_ID == feature_id, , drop = FALSE]
+  
   colnames(row) <- gsub("\\.", " ", colnames(row))
   if (nrow(row) == 0) return(NULL)
 
   nm <- gsub('\\.'," ",names(results))
- 
-  first <- which(nm == "peakCount_filter") + 1
+  nm <- gsub('_'," ",nm)
+  
+  first <- which(nm == "peakCount filter") + 1
   last  <- which(nm == "score") - 1
   if (length(first) == 0 || length(last) == 0 || first > last) return(NULL)
   filter_cols <- nm[first:last]
   
   rule_names <- gsub('\\.'," ",make.names(vapply(rules, function(r) as.character(r$label)[1], character(1))))
-  
+
   out <- list()
   for (col in filter_cols) {
     cell <- row[[col]][1]
@@ -525,7 +536,6 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
         
         }
       if (length(hit_rows) == 0) next
-
       
       for (r in hit_rows) {
         # one row = one combination -> all its values; one variable -> just that value
