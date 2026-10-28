@@ -76,6 +76,7 @@
     "lipid_definition": {
         "chains": [
             {
+                "chain_id" : "AAAAA",
                 "C_min": 16,
                 "C_max": 18,
                 "even_steps": true,
@@ -106,6 +107,7 @@
                 }
             },
             {
+                "chain_id" : "BBBBB",
                 "C_min": 18,
                 "C_max": 26,
                 "even_steps": true,
@@ -135,8 +137,8 @@
                 "val_priority": "basic",
                 "components": [
                     "Backbone",
-                    "1",
-                    "2"
+                    "AAAAA",
+                    "BBBBB"
                 ]
             }
         ],

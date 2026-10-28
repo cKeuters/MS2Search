@@ -307,17 +307,14 @@ run_analysis <- function(settings_list, sp, add_log){
         
         chain_ids <- val$components
         chain_ids <- setdiff(chain_ids, "Backbone")
-        
-        print("chain_ids without Backbone")
-        print(chain_ids)
+
         components <- lapply(chain_ids, function(id){
           chain <- settings_list$lipid_definition$chains[
             sapply(settings_list$lipid_definition$chains, `[[`, "chain_id") == id
           ][[1]]
           calc_lipid_chain_masses(chain)$mass}
           )
-        print("components")
-        print(components)
+
         combos <- do.call(expand.grid, components)
         
         adjustmentMass <- calculate_adjustment_mass(val$adjustments)

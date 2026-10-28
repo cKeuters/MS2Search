@@ -567,7 +567,6 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
 #' neutral loss visualization.
 #' 
 #' @param sp A Spectra object with all spectra.
-#' @param feature_id id of the selected spectrum
 #' @param settings_list list of all setting parameters.
 #' @param results The results of the analysis.
 #' 
@@ -576,16 +575,15 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
 #' @importFrom plotly plot_ly add_segments layout 
 #' @importFrom grDevices rainbow
 #' @noRd
-plottingSpectra <- function(sp, feature_id, set_isotope_sum, settings_list, results){
-  
-  spectrum <- get_spectrum_by_id(sp, feature_id, id_column = "FEATURE_ID")
+plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results){
+ 
   mz <- unlist(spectrum$mz)
   intensities <- unlist(spectrum$intensity)
   filtered_spectrum <- cleaning_ref(spectrum, settings_list$basicFilters)
   if(set_isotope_sum) results <- summarize_isotope_peaks(results, spectrum)
 
   start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2) + 3
-  filter_results <- results[which(results$FEATURE_ID == feature_id), start_filtercols:(ncol(results)-1), drop = FALSE]
+  filter_results <- results[, start_filtercols:(ncol(results)-1), drop = FALSE]
   filter_results[["Intensity Filter"]] <- list(setdiff(mz, unlist(filtered_spectrum$mz)))
   
   
@@ -609,7 +607,9 @@ plottingSpectra <- function(sp, feature_id, set_isotope_sum, settings_list, resu
   category  <- factor(category , levels = c("none","Intensity Filter",levs ))
 
   # ---- neutral losses -> shapes + annotations (hidden by default) ----
-  nl <- neutral_losses_from_results(results, feature_id, settings_list$specific_filters, spectrum, tol = settings_list$basicFilters$minimum_dalton)
+  nl <- neutral_losses_from_results(results, feature_id = results$FEATURE_ID[1],
+                                    settings_list$specific_filters, 
+                                    spectrum, tol = settings_list$basicFilters$minimum_dalton)
 
   shapes <- list(); annots <- list()
 

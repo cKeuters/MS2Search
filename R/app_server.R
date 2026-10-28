@@ -253,6 +253,7 @@ app_server <- function(input, output, session) {
       NULL
     } else {
       state$newMS2data <- TRUE
+      MetaboSelectedProjectID("")
       ext <- tools::file_ext(input$ms2_file$name)
       MS2file_name(switch(ext,
                mgf = input$ms2_file$name,
@@ -593,12 +594,13 @@ app_server <- function(input, output, session) {
       tryCatch({
         
         if(state$newMS2data){
-          if(!is.null(ms2_path)) spec <- load_spectra(ms2_path, add_log = write_log)
-          else if(SelectedProjectID != ""){
+          
+          if(SelectedProjectID != ""){
             write_log(paste("Loading with MetaboSelectedProjectID", SelectedProjectID))
             featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
             spec <- Spectra(featureTable)
           } 
+          else if(!is.null(ms2_path)) spec <- load_spectra(ms2_path, add_log = write_log)
           else write_log("NO MS2")
         }
         else spec <- analysis_results$spectra
@@ -1191,12 +1193,10 @@ app_server <- function(input, output, session) {
   
   # --- helper: build a checkbox <input> for one row ---
   checkbox_html <- function(id, checked) {
-    sprintf(
-      '<input type="checkbox" class="feature-checkbox" data-feature-id="%s"%s/>',
-      id,
-      if (isTRUE(checked)) " checked" else ""
-    )
+    sprintf('<input type="checkbox" class="feature-checkbox" data-feature-id="%s"%s/>',
+            id, ifelse(!is.na(checked) & checked, " checked", ""))
   }
+  
   
   # JS that listens for clicks on any checkbox in the table and reports
   # back to Shiny which feature was (un)checked. Delegated on the table
@@ -1222,16 +1222,17 @@ app_server <- function(input, output, session) {
   # Table data without the checkbox column, shared by render + proxy update
   table_data <- reactive({
     res <- filtered_results()
-    sd  <- spectraData(analysis_results$spectra)
+    sd <- spectraData(analysis_results$spectra,
+                      columns = c("FEATURE_ID", "precursorMz", "rtime"))
     info <- as.data.frame(sd[match(res$FEATURE_ID, sd$FEATURE_ID),
                              c("FEATURE_ID", "precursorMz", "rtime")])
     info$score <- res$score
     info
   })
-  
+
   add_checkboxes <- function(info, checked) {
     ids <- as.character(info$FEATURE_ID)
-    info$selected <- mapply(checkbox_html, ids, checked[ids], USE.NAMES = FALSE)
+    info$selected <- checkbox_html(ids, unname(checked[ids]))
     info
   }
   
@@ -1350,6 +1351,13 @@ app_server <- function(input, output, session) {
   
   set_isotope_sum <- reactiveVal(FALSE)
   
+  selected_spectrum <- reactive({
+    req(selected_feature_id())
+    get_spectrum_by_id(analysis_results$spectra,
+                       as.numeric(selected_feature_id()),
+                       id_column = "FEATURE_ID")
+  })
+  
   observeEvent(input$set_isotope_sum_Button,{
     set_isotope_sum(!set_isotope_sum())
   })
@@ -1360,7 +1368,7 @@ app_server <- function(input, output, session) {
     res <- analysis_results$results
     
     
-    spectrum <- get_spectrum_by_id(analysis_results$spectra, featureID, id_column = "FEATURE_ID")
+    spectrum <- selected_spectrum()
     settings_list <- analysis_results$res_settings
 
     if(set_isotope_sum()) {
@@ -1443,7 +1451,6 @@ app_server <- function(input, output, session) {
     seq_nl_col <- Filter(Negate(is.null), seq_nl_col)
     seq_nl_col <- unlist(seq_nl_col)
     
-    print(nl)
     for (col_name in seq_nl_col) {
       filtered_nl <- nl[nl$label == col_name,]
       
@@ -1522,7 +1529,9 @@ app_server <- function(input, output, session) {
     req(nrow(analysis_results$results) > 0)
     req(selected_feature_id())
     settings_list <- analysis_results$res_settings
-    plottingSpectra(analysis_results$spectra, selected_feature_id(), set_isotope_sum(), settings_list, analysis_results$results)
+    results <- analysis_results$results
+    results <- results[results$FEATURE_ID == selected_feature_id(),]
+    plottingSpectra(selected_spectrum(), set_isotope_sum(), settings_list, results)
     
   })
   
@@ -1553,6 +1562,8 @@ app_server <- function(input, output, session) {
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
       
       if(!is.null(MetaboAnnotationData())){
+        annotationDetails <- MetaboAnnotationData()
+        annotationDetails <- annotationDetails[featureID,]
       }else{
         calculated_formulas <- calculateFormulaFromMass(spectrum_info$precursorMz,unlist(spectrum_info[[adduct_col]])[1])
         

@@ -91,9 +91,7 @@ getMetaboScapeConnection <- function(){
     return()
   }
   bruker_api <- rapiclient::get_api(url = "http://ServerAddress/cxf/metaboscape/openapi.json")
-  print("Got Bruker API")
   bruker_api$basePath <- "/cxf/metaboscape"
-  print("Bruker API basePath set")
   operations <- rapiclient::get_operations(bruker_api, .headers = c("api-key" = api_key))
   
 }
