@@ -79,7 +79,6 @@ mod_LipidDefinition_server <- function(id, load_trigger){
 
     remove_chain <- function(cid) {
       cid <- as.character(cid)
-      cat(paste("remove chain", cid))
       removeUI(selector = paste0("#", ns(paste0("chain_wrap_", cid))))
       chain_modules[[cid]] <- NULL
 

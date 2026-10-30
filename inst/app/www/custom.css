@@ -1468,3 +1468,21 @@ input:checked + .slider:before {
 .info-pill strong {
   margin-right: 4px;
 }
+
+
+.modal-flex {
+  display:flex; 
+  gap:10px; 
+  align-items:flex-end;
+}
+
+.small-selection {
+  width:120px
+}
+
+.modal-title-flex {
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  width: 100%;
+}

@@ -136,9 +136,10 @@ app_server <- function(input, output, session) {
 
   ms1_data <- reactiveVal(NULL)
   
-  #MetaboScape Authentification and Projects
+  #MetaboScape Authentification and Projects, Versions: "2025b" or "2026b"
   metaboAuth <- reactiveValues(
     authenticated = FALSE, 
+    MetaboVersion = "2025b",
     pending_action = NULL
     )
   MetaboScapeProjects <- reactiveVal(list())
@@ -579,7 +580,7 @@ app_server <- function(input, output, session) {
     log_state$file <- log_file
     
     
-    if(SelectedProjectID != "") MetaboScapeAPI <- getMetaboScapeConnection()
+    if(SelectedProjectID != "") MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
     future({
       
       write_log <- function(msg) {
@@ -674,7 +675,7 @@ app_server <- function(input, output, session) {
   selectProject_from_metaboscape <- function(){
     if(length(MetaboScapeProjects()) == 0){
       
-      MetaboScapeAPI <- getMetaboScapeConnection()
+      MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
       res <- MetaboScapeAPI$listAllProjects()
       projects <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
       
@@ -684,6 +685,7 @@ app_server <- function(input, output, session) {
         project_name <- projects$name[i]
         exps <- projects$experiments[[i]]
         exp_nodes <- list()
+        
 
         for (j in seq_len(nrow(exps))) {
           ft <- exps$featureTables[[j]]
@@ -695,6 +697,7 @@ app_server <- function(input, output, session) {
             paste0(ft$name, " (", ft$polarity, ", ", ft$creationDate, ")")
           )
 
+          if(metaboAuth$MetaboVersion == "2025b") exps$description[j] <- ""
           exp_nodes[[exps$name[j]]] <- structure(
             ft_nodes,
             attr  = list(a_attr = list(title = sprintf(
@@ -723,7 +726,9 @@ app_server <- function(input, output, session) {
     
     showModal(modalDialog(
       
-      title = "Project Table Selection",
+      title = div(class = "modal-title-flex",
+      "Project Table Selection",
+                  actionButton("Metabo_logout", "Logout")),
       shinyTree("metaboProjectTree", search = TRUE, theme = "proton"),
       
       footer = tagList(
@@ -733,6 +738,13 @@ app_server <- function(input, output, session) {
       easyClose = FALSE
     ))
   }
+  
+  observeEvent(input$Metabo_logout,{
+    metaboAuth$authenticated <- FALSE
+    metaboAuth$require_auth(function() {
+      selectProject_from_metaboscape()   
+    })
+  })
   
   observeEvent(input$SelectProject,({
     table <- get_selected(input$metaboProjectTree)
@@ -745,7 +757,7 @@ app_server <- function(input, output, session) {
   }))
   
   getMetaboMS1data <- function(){
-    MetaboScapeAPI <- getMetaboScapeConnection()
+    MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
     res <- MetaboScapeAPI$retrieveIntensityMatrix(MetaboSelectedProjectID())
     IntensityMatrix <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
     res <- MetaboScapeAPI$listAllSamples(MetaboSelectedProjectID())
@@ -761,7 +773,7 @@ app_server <- function(input, output, session) {
   #
   # @return Returns the MetaboScape FeatureTable with MetaboScape Feature Id, primary annotation and annotation tool.
   getMetaboPrimaryAnnotation <- function(){
-    MetaboScapeAPI <- getMetaboScapeConnection()
+    MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
     res <- MetaboScapeAPI$retrieveFeatureTable(featureTableId = MetaboSelectedProjectID())
     featureTable <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
     
@@ -786,7 +798,7 @@ app_server <- function(input, output, session) {
                        a feature table and repeat the analysis.", 
                        duration = 10, type = "warning")
     }else{
-      MetaboScapeAPI <- getMetaboScapeConnection()
+      MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
       current <- isolate(checked_features())
       
       true_ids <- names(current)[current]
@@ -1052,7 +1064,7 @@ app_server <- function(input, output, session) {
         state$newMS2data <- FALSE
         }
       else if(SelectedProjectID != ""){
-        MetaboScapeAPI <- getMetaboScapeConnection()
+        MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
         
         featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
         analysis_results$spectra <- Spectra(featureTable)
