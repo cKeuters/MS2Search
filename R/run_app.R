@@ -15,7 +15,7 @@ run_app <- function(
 	...
 ) {
   options(shiny.maxRequestSize = 500 * 1024^2)
-  set.seed(123)
+  set.seed(Sys.time())
   
 	golem::with_golem_options(
 		app = shinyApp(

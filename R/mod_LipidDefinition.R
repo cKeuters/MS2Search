@@ -134,11 +134,11 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       vid <- as.character(isolate(next_validation_id()))
       validation_ids(c(isolate(validation_ids()), vid))
       child_id <- paste0("validation_", vid)
-      
+
       insertUI(
         selector = paste0("#", ns("validation_container")),
         where = "beforeEnd",
-        ui = div(id = ns(paste0("validation_wrap_", vid)),      # <- unique prefix
+        ui = div(id = ns(paste0("validation_wrap_", vid)), 
                  validationUI(ns(child_id), init_validation, fixed)),
         immediate = TRUE
       )
@@ -181,7 +181,7 @@ mod_LipidDefinition_server <- function(id, load_trigger){
         })
       }
       vals_to_load <- load_trigger()$validations
-      
+
       if(!is.null(vals_to_load)){
         for(val_id in validation_ids()) remove_validation(val_id)
         
@@ -349,6 +349,9 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     
     output$chain_priority <- renderUI({
       createPriorityRadioButtons(ns("chain_priority"), chain_state$priority)
+    })
+    observeEvent(input$chain_priority,{
+      chain_state$priority <- input$chain_priority
     })
     
     observeEvent(input$remove_chain, on_remove(id), ignoreInit = TRUE)
@@ -689,45 +692,62 @@ validationUI <- function(id, validation, fixed = FALSE) {
 validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_remove = NULL) {
   moduleServer(id, function(input, output, session) {
     
+
     ns <- session$ns
-    sel_ids  <- reactiveVal(character(0))
-    next_sel <- reactiveVal(1)
-    
+    selection_ids  <- reactiveVal(list())
+    selection_count <- reactiveVal(0)
+
     add_component_to_ui <- function(selection = NULL) {
-      i <- isolate(next_sel())
-      next_sel(i + 1)
-      sel_ids(c(isolate(sel_ids()), as.character(i)))
+      chain <- isolate(chain_ids())
+      selection_count(selection_count() + 1)
+      i <- selection_count()
+      selection_ids(c(selection_ids(), i ))
+
       insertUI(
         selector = paste0("#", ns("selector_container")),
         where = "beforeEnd",
-        ui = selectInput(ns(paste0("sel_", i)), label = NULL,
-                         choices = c("Backbone", isolate(chain_ids())),
-                         selected = selection),
+        ui = selectInput(
+          ns(paste0("sel_", i)),
+          label = NULL,
+          choices = setNames(c("Backbone", chain),c("Backbone", seq_along(chain))),
+          selected = selection
+        ),
         immediate = TRUE
       )
-    }
-    
-    if (!fixed) {
-      observeEvent(input$add_component, add_component_to_ui())
-      for (com in init_validation$components) add_component_to_ui(com)
       
-      # keep the choices in sync when chains are added/removed
-      observe({
-        choices <- c("Backbone", seq(chain_ids()))
-        for (i in sel_ids()) {
-          cur <- isolate(input[[paste0("sel_", i)]])
-          updateSelectInput(session, paste0("sel_", i), choices = choices,
-                            selected = if (!is.null(cur) && cur %in% choices) cur else NULL)
-        }
-      })
     }
+    isolate(for (com in init_validation$components) add_component_to_ui(com))
+    
+      # keep the choices in sync when chains are added/removed
+    observeEvent(chain_ids(), {
+      
+      req(length(selection_ids()) > 0)
+      
+      choices <- setNames(
+        c("Backbone", chain_ids()),
+        c("Backbone", seq_along(chain_ids()))
+      )
+      
+      for (i in selection_ids()) {
+        
+        id <- paste0("sel_", i)
+        cur <- input[[id]]
+
+        updateSelectInput(
+          session,
+          id,
+          choices = choices,
+          selected = cur
+        )
+      }
+    }, ignoreInit = TRUE)
+    
     
     components <- reactive({
       if (fixed) {
         c("Backbone", chain_ids())
       } else {
-        selected_ids <- as.numeric(unlist(lapply(sel_ids(), function(i) input[[paste0("sel_", i)]])))
-        chain_ids()[selected_ids]
+        unlist(lapply(selection_ids(), function(i) input[[paste0("sel_", i)]]))
       }
     })
     

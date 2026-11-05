@@ -448,7 +448,6 @@ app_server <- function(input, output, session) {
       state$newMS2data <- FALSE
       state$screen <- "Results"
     }
-    
     lipid_load_trigger(settings_list$lipid_definition)
     })
   
@@ -536,6 +535,7 @@ app_server <- function(input, output, session) {
   selected_feature_id <- reactive({
     req(nrow(analysis_results$results) > 0)
     req(input$featureTable_rows_selected)
+    
     res <- filtered_results()
     res$FEATURE_ID[input$featureTable_rows_selected]
   })
@@ -565,6 +565,7 @@ app_server <- function(input, output, session) {
       cards             = all_cards_data(),
       lipid_definition   = lipid_definition()
       )
+    
     analysis_results$res_settings <- settings
 
     prio <- c(settings$basicFilters$mz_priority, 
@@ -1234,16 +1235,17 @@ app_server <- function(input, output, session) {
   # Table data without the checkbox column, shared by render + proxy update
   table_data <- reactive({
     res <- filtered_results()
+
     sd <- spectraData(analysis_results$spectra,
-                      columns = c("FEATURE_ID", "precursorMz", "rtime"))
-    info <- as.data.frame(sd[match(res$FEATURE_ID, sd$FEATURE_ID),
-                             c("FEATURE_ID", "precursorMz", "rtime")])
+                      columns = c("FEATURE_ID", "FEATURE_KEY", "precursorMz", "rtime"))
+    info <- as.data.frame(sd[match(res$FEATURE_ID, sd$FEATURE_KEY),
+                             c("FEATURE_KEY", "precursorMz", "rtime")])
     info$score <- res$score
     info
   })
 
   add_checkboxes <- function(info, checked) {
-    ids <- as.character(info$FEATURE_ID)
+    ids <- as.character(info$FEATURE_KEY)
     info$selected <- checkbox_html(ids, unname(checked[ids]))
     info
   }
@@ -1365,10 +1367,14 @@ app_server <- function(input, output, session) {
   
   selected_spectrum <- reactive({
     req(selected_feature_id())
-    get_spectrum_by_id(analysis_results$spectra,
-                       as.numeric(selected_feature_id()),
-                       id_column = "FEATURE_ID")
+    get_spectrum_by_id(analysis_results$spectra, selected_feature_id())
   })
+  
+  plot_ctx <- reactive({
+    req(analysis_results$res_settings)
+    prepare_plot_context(analysis_results$res_settings)
+  })
+  
   
   observeEvent(input$set_isotope_sum_Button,{
     set_isotope_sum(!set_isotope_sum())
@@ -1376,18 +1382,19 @@ app_server <- function(input, output, session) {
   
   output$filter_results_tableDT <- DT::renderDataTable({
     req(selected_feature_id())
-    featureID  <- as.numeric(selected_feature_id())
+    featureID  <- selected_feature_id()
     res <- analysis_results$results
     
     
     spectrum <- selected_spectrum()
     settings_list <- analysis_results$res_settings
+    ctx <- plot_ctx()
 
     if(set_isotope_sum()) {
       res <- summarize_isotope_peaks(res, spectrum)}
     
-
-    nl <- neutral_losses_from_results(res, featureID, settings_list$specific_filters , spectrum, tol = settings_list$basicFilters$minimum_dalton)
+    nl <- neutral_losses_from_results(res, featureID, ctx$rules_prepped, spectrum,
+                                      tol = settings_list$basicFilters$minimum_dalton)
     
     i_pos <- which(res$FEATURE_ID == featureID)
     res <- res[i_pos, 2:ncol(res), drop = FALSE]
@@ -1407,7 +1414,7 @@ app_server <- function(input, output, session) {
 
     #row 2 found values
     row2 <- vapply(res[,colnames(df)], function(x) {
-        
+
       if (is.list(x)){
         value_text <- paste(round(as.numeric(unlist(x)), 3), collapse = ", ")
         diff <- lapply(x, function(x2){as.numeric(precursorMz) - as.numeric(x2)})
@@ -1435,8 +1442,7 @@ app_server <- function(input, output, session) {
 
     # Row 3: formulas, only for the chain columns
     row3 <- setNames(rep("", ncol(df)), names(df))
-    ld <- lipid_definition()
-    chain_calcs <- lapply(ld$chains, calc_lipid_chain_masses)
+    chain_calcs <- ctx$chain_calcs
     chain_cols  <- grep("chain", names(res))
     
     for (k in seq_len(min(length(chain_cols), length(chain_calcs)))) {
@@ -1465,6 +1471,7 @@ app_server <- function(input, output, session) {
     
     for (col_name in seq_nl_col) {
       filtered_nl <- nl[nl$label == col_name,]
+      if (is.null(filtered_nl) || NROW(filtered_nl) == 0) next
       
       annotation_txt <- list()
       for(nl_row in seq_len(nrow(filtered_nl))){
@@ -1547,7 +1554,17 @@ app_server <- function(input, output, session) {
     
   })
   
-
+  mod_spectrum_server(
+    "spectrum_plot_mod",
+    spectrum_r        = selected_spectrum,
+    settings_list_r   = reactive(analysis_results$res_settings),
+    results_r         = reactive({
+      req(nrow(analysis_results$results) > 0, selected_feature_id())
+      analysis_results$results[analysis_results$results$FEATURE_ID == selected_feature_id(), ]
+    }),
+    set_isotope_sum_r = set_isotope_sum,
+    ctx_r             = plot_ctx
+  )
   
   output$ms1_plot <- renderPlot({
     req(selected_feature_id())
@@ -1565,12 +1582,10 @@ app_server <- function(input, output, session) {
         return(div(class = "placeholder-text", "Select Feature"))
       }
       req(nrow(analysis_results$results) > 0)
-      featureID <- as.numeric(selected_feature_id())
-      
-      
+      featureID <- selected_feature_id()
 
-      spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]
-      pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(analysis_results$spectra))[1]
+      spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_KEY == featureID]
+      pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),spectraVariables(analysis_results$spectra))[1]
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
       
       if(!is.null(MetaboAnnotationData())){
@@ -1620,7 +1635,8 @@ app_server <- function(input, output, session) {
               div(class = "detail-value", spectrum_info[[pol_col]])
           ) 
         ),
-        plotlyOutput("interactive_spectrum"),
+        #plotlyOutput("interactive_spectrum"),
+        mod_spectrum_ui("spectrum_plot_mod"),
         DT::dataTableOutput("filter_results_tableDT"),
         actionButton("set_isotope_sum_Button", "Summarize Peaks"),
         plotOutput("ms1_plot")
@@ -1629,3 +1645,39 @@ app_server <- function(input, output, session) {
 
 }
 
+mod_spectrum_ui <- function(id) {
+  ns <- NS(id)
+  tagList(
+    # shinyWidgets::checkboxGroupButtons() gives the same input as real buttons
+    checkboxGroupInput(ns("overlays"), NULL, inline = TRUE,
+                       choices = c("Neutral losses" = "nl", "Chains" = "chain", "Validations" = "val")),
+    plotly::plotlyOutput(ns("spectrum_plot"))
+  )
+}
+
+mod_spectrum_server <- function(id, spectrum_r, settings_list_r, results_r,
+                                set_isotope_sum_r, ctx_r) {
+  moduleServer(id, function(input, output, session) {
+    ctx <- ctx_r      
+    
+    built <- reactive({
+      req(spectrum_r(), nrow(results_r()) > 0)
+      plottingSpectra(spectrum_r(), set_isotope_sum_r(), settings_list_r(), results_r(),
+                      ctx(), show = isolate(input$overlays))
+    })
+    
+    output$spectrum_plot <- plotly::renderPlotly(built()$fig)
+    
+    proxy <- plotly::plotlyProxy("spectrum_plot", session)
+    
+    observeEvent(input$overlays, ignoreNULL = FALSE, ignoreInit = TRUE, {
+      idx <- built()$idx
+      for (grp in names(idx)) {
+        if (length(idx[[grp]]) == 0) next
+        plotly::plotlyProxyInvoke(proxy, "restyle",
+                                  list(visible = grp %in% input$overlays),
+                                  as.list(idx[[grp]]))
+      }
+    })
+  })
+}

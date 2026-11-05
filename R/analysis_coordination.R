@@ -24,6 +24,20 @@ load_spectra <- function(ms2_file, add_log = NULL){
   sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
   sp <- getRT(sp)
   
+  FEATURE_ID <- spectraData(sp)$FEATURE_ID
+  if(length(FEATURE_ID) != length(unique(FEATURE_ID))){
+    n_peaks <- lengths(peaksData(sp))
+    
+    key <- paste(
+      sprintf("%.5f", spectraData(sp)$precursorMz),
+      sprintf("%.2f", spectraData(sp)$rtime),
+      spectraData(sp)$SPECTYPE,
+      n_peaks,
+      sep = "|"
+    )
+    sp$FEATURE_KEY <- key
+  }else sp$FEATURE_KEY <- FEATURE_ID
+  
   if(!is.null(add_log)) add_log(paste("Loaded MS2-file with ", length(sp)," spectra."))
 
   sp
@@ -133,6 +147,7 @@ run_analysis <- function(settings_list, sp, add_log){
   # Basic filters and checks
   #-----------------------------------------------------------------------------
 
+  
   #check MS-Level 2 & empty spectra
   keep <- !vapply(peaksData(sp), is.null, logical(1))
   sp <- sp[keep]
@@ -142,11 +157,16 @@ run_analysis <- function(settings_list, sp, add_log){
   add_log(paste("Non-empty spectra with MS-level 2: ", length(sp)))
   
   results <- data.frame(FEATURE_ID = spectraData(sp)$FEATURE_ID)
+  if(length(results$FEATURE_ID) != length(unique(results$FEATURE_ID))){
+    results$FEATURE_ID <- spectraData(sp)$FEATURE_KEY
+  }
+  
   if("metaboScape_ID" %in% spectraVariables(sp)) results$metaboScape_ID <- spectraData(sp)$metaboScape_ID
 
   #check mode
-  pol_col <- intersect(c("POLARITY", "polarity", "IONMODE", "ionmode"),spectraVariables(sp))
-  if(settings_list$project_info$mode == "pos") mode <- c("POS", "POSITIVE", "positive", 1) else mode <- c("NEG", "NEGATIVE", "negative", 0)
+  pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),spectraVariables(sp))[1]
+  if(settings_list$project_info$mode == "pos") mode <- c("POS","Positive", "POSITIVE", "positive", 1) else mode <- c("NEG", "NEGATIVE", "negative", 0)
+
   if (length(pol_col) > 0) {
     retained_vector <- sp[[pol_col[1]]] %in% mode
     results <- results[retained_vector, , drop = FALSE]
@@ -284,11 +304,12 @@ run_analysis <- function(settings_list, sp, add_log){
       results[[paste("chain",chain_id)]] <- found_mz
       
       chain_id <- chain_id + 1
+
       if(ld$priority == "required"){
-        
         results <- results[retained_vector,]
         sp <- sp[retained_vector,]
         sp_cleaned <- sp_cleaned[retained_vector,]
+        peaks_data <- peaksData(sp_cleaned)
       }
       
     }
@@ -296,18 +317,18 @@ run_analysis <- function(settings_list, sp, add_log){
     #-----------------------------------------------------------------------------
     # validation filters
     #-----------------------------------------------------------------------------
+    
     if(length(settings_list$lipid_definition$chains) == 0){
       settings_list$lipid_definition$validations <- NULL
     }
     else{
-      headgroupMass <- if(is.null(settings_list$headgroup)||settings_list$headgroup == "") 0 
-      else calculate_adjustment_mass(settings_list$headgroup)
-      
+      headgroupMass <- if(is.null(settings_list$lipid_definition$head_group)||settings_list$lipid_definition$head_group == "") 0 
+      else {calculate_adjustment_mass(settings_list$lipid_definition$head_group)}
+
       for(val in settings_list$lipid_definition$validations){
-        
         chain_ids <- val$components
         chain_ids <- setdiff(chain_ids, "Backbone")
-
+        
         components <- lapply(chain_ids, function(id){
           chain <- settings_list$lipid_definition$chains[
             sapply(settings_list$lipid_definition$chains, `[[`, "chain_id") == id
@@ -316,7 +337,7 @@ run_analysis <- function(settings_list, sp, add_log){
           )
 
         combos <- do.call(expand.grid, components)
-        
+
         adjustmentMass <- calculate_adjustment_mass(val$adjustments)
         
         masses <- rowSums(combos) + adjustmentMass + if("Backbone" %in% val$components) headgroupMass else 0 
@@ -329,7 +350,6 @@ run_analysis <- function(settings_list, sp, add_log){
         
         add_log(paste0("Spectra after ",val$name,": ", sum(retained_vector)))
         
-        
         results[[val$name]] <- found_mz
         
         if(val$val_priority == "required"){
@@ -341,7 +361,6 @@ run_analysis <- function(settings_list, sp, add_log){
       }
     }
 
-      
   #------------------------- creating dataframe  ----------------------
     priority_weights <- c(
       basic = 1,
@@ -378,7 +397,7 @@ run_analysis <- function(settings_list, sp, add_log){
     matches <- as.matrix(matches)
     
     results$score <- rowSums((sweep(matches, MARGIN=2,priorities, `*`))) / sum(priorities)
-    
+  
     as.data.frame(results)
 }
 

@@ -189,21 +189,21 @@ load_project <- function(zip_path) {
 #'   Throws an informative error if no match is found.
 #'
 #' @importFrom Spectra spectraData
-get_spectrum_by_id <- function(spectra, feature_id, id_column = "FeatureID") {
+get_spectrum_by_id <- function(spectra, feature_id) {
   
   spectraData <- Spectra::spectraData(spectra)
   
-  if (!id_column %in% colnames(spectraData)) {
+  if (!"FEATURE_KEY" %in% colnames(spectraData)) {
     stop(sprintf(
       "Column '%s' not found in spectraData. Available columns: %s",
-      id_column, paste(colnames(spectraData), collapse = ", ")
+      "FEATURE_KEY", paste(colnames(spectraData), collapse = ", ")
     ))
   }
   
-  match_idx <- which(spectraData[[id_column]] == feature_id)
+  match_idx <- which(spectraData$FEATURE_KEY == feature_id)
   
   if (length(match_idx) == 0) {
-    stop(sprintf("No spectrum found for %s = '%s'", id_column, feature_id))
+    stop(sprintf("No spectrum found for %s = '%s'", "", feature_id))
   }
   subsp <- spectra[match_idx]
   
@@ -448,118 +448,208 @@ create_brkrrba_file <- function(settings_list, file_path){
 #' @return The found peaks with partner
 #' 
 #' @noRd
-neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
+neutral_losses_from_results <- function(results, feature_id, prepped, spectrum,
                                         tol = 0.01, include_precursor = TRUE) {
-  mz  <- unlist(spectrum$mz)
-  int <- unlist(spectrum$intensity)
-  
-  # candidate partner peaks (optionally the precursor as well)
-  cand_mz  <- mz
-  cand_int <- int
-  if (include_precursor) {
-    cand_mz  <- c(cand_mz,  spectrum$precursorMz)
-    cand_int <- c(cand_int, max(int))
-  }
-  
   row <- results[results$FEATURE_ID == feature_id, , drop = FALSE]
-  
-  colnames(row) <- gsub("\\.", " ", colnames(row))
   if (nrow(row) == 0) return(NULL)
-
-  nm <- gsub('\\.'," ",names(results))
-  nm <- gsub('_'," ",nm)
-  
+  clean <- function(x) gsub("_", " ", gsub("\\.", " ", x))
+  colnames(row) <- clean(colnames(row))
+  nm    <- clean(names(results))
   first <- which(nm == "peakCount filter") + 1
   last  <- which(nm == "score") - 1
   if (length(first) == 0 || length(last) == 0 || first > last) return(NULL)
   filter_cols <- nm[first:last]
   
-  rule_names <- gsub('\\.'," ",make.names(vapply(rules, function(r) as.character(r$label)[1], character(1))))
-
+  mz <- unlist(spectrum$mz); int <- unlist(spectrum$intensity)
+  cand_mz <- mz; cand_int <- int
+  if (include_precursor) {
+    cand_mz  <- c(cand_mz, spectrum$precursorMz)
+    cand_int <- c(cand_int, max(int))
+  }
+  mz_sorted <- sort(cand_mz)               
+  keys <- vapply(prepped, `[[`, "", "key")
+  
   out <- list()
   for (col in filter_cols) {
-    cell <- row[[col]][1]
-
-    val <- unlist(cell)
-
-    r_idx <- which(rule_names == col)
-
-    if (length(r_idx) == 0) r_idx <- which(rule_names == sub("\\.[0-9]+$", "", col))
-    if (length(r_idx) == 0) next 
-    rule <- rules[[r_idx]]
-    if(!rule$sequential){
-      rule$min_repeat = 1
-      rule$max_repeat = 1
-    }
-
-    masses <- vapply(rule$entries, function(e) {
-      resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
-    }, numeric(1))
-    searched <- abs(as.numeric(masses[!is.na(masses)]))
-    mz <- sort(cand_mz)
-    for (f in val) {
-      if(is.na(f)) next
-      for (count in seq(rule$max_repeat, rule$min_repeat)) {
-        
-        searched_grid <- do.call(expand.grid, rep(list(searched), count))
-        target <- f - rowSums(searched_grid)      # not sorted -> row r of grid = target[r]
-        
+    r_idx <- match(col, keys)
+    if (is.na(r_idx)) r_idx <- match(sub(" [0-9]+$", "", col), keys)
+    if (is.na(r_idx)) next
+    p <- prepped[[r_idx]]
+    
+    for (f in unlist(row[[col]][1])) {
+      if (is.na(f)) next
+      for (g in p$grids) {                         # largest repeat count first
+        target <- f - g$sums
         ord <- order(target)
         idx <- integer(length(target))
-        idx[ord] <- closest(target[ord], mz, tolerance = tol)
-
+        idx[ord] <- closest(target[ord], mz_sorted, tolerance = tol)
         hit_rows <- which(!is.na(idx))
         if (length(hit_rows) == 0) next
-        
-        if (is.data.frame(hit_rows) && nrow(hit_rows) > 0){
-          
-          #looking if the neutral losses in between can be found as peaks
-          for(count_between in seq(1,count-1)){
-
-            searched_grid <- searched_grid[,-1, drop = FALSE]
-            rowsums <- if (is.data.frame(searched_grid)) rowSums(searched_grid) else searched_grid
-            target <- sort(f - rowsums)
-            
-            idx_between <- closest(target, mz, tolerance = tol)
-            mz_hits_between <- mz[idx_between]
-            
-            masses_hits_between <- searched_grid[which((f - rowsums) %in% target[!is.na(idx_between)]),]
-
-            if (NROW(masses_hits_between) == 0){
-              masses_hits <- NULL
-              break
-            } 
-          }
-          
-          if (NROW(masses_hits_between) > 0 && NROW(masses_hits) > 0) break
-        }else if(!is.data.frame(hit_rows) && length(hit_rows) > 0)break   
-        
-        }
-      if (length(hit_rows) == 0) next
-      
-      for (r in hit_rows) {
-        # one row = one combination -> all its values; one variable -> just that value
-        masses <- unlist(searched_grid[r, , drop = FALSE], use.names = FALSE)
-        partner_mz <- mz[idx[r]]
-        
-        out[[length(out) + 1]] <- data.frame(
+        partner <- mz_sorted[idx[hit_rows]]
+        out[[length(out) + 1]] <- data.table::data.table(
           mz_found    = f,
-          int_found   = cand_int[which(cand_mz == f)][1],
-          mz_partner  = partner_mz,
-          int_partner = cand_int[which(cand_mz == partner_mz)][1],
-          delta       = sum(masses),
-          label       = rule$label
+          int_found   = cand_int[match(f, cand_mz)],
+          mz_partner  = partner,
+          int_partner = cand_int[match(partner, cand_mz)],
+          delta       = g$sums[hit_rows],
+          label       = p$label,
+          masses      = lapply(hit_rows, function(r) p$searched[g$idx[, r]])
         )
-        out[[length(out)]]$masses <- list(masses)
+        break                                      # first count with hits wins
       }
-       
     }
   }
-
   if (length(out) == 0) return(NULL)
-  do.call(rbind, out)
-  
+  as.data.frame(data.table::rbindlist(out))
 }
+
+# ---- once per settings change ------------------------------------------------
+combos_with_repl <- function(n, k) {
+  if (k == 1) return(matrix(seq_len(n), nrow = 1))
+  utils::combn(n + k - 1, k) - (0:(k - 1))
+}
+
+prep_rule <- function(rule, mode) {
+  masses <- vapply(rule$entries, function(e)
+    resolve_mass(list(input_type = rule$input_type, value = e$value,
+                      is_mzPeak = rule$is_mzPeak), mode), numeric(1))
+  searched <- abs(masses[!is.na(masses)])
+  if (!isTRUE(rule$sequential)) rule$min_repeat <- rule$max_repeat <- 1
+  counts <- if (length(searched)) rev(seq.int(rule$min_repeat, rule$max_repeat)) else integer(0)
+  list(
+    label = as.character(rule$label)[1],
+    key   = gsub("\\.", " ", make.names(as.character(rule$label)[1])),
+    searched = searched,
+    grids = lapply(counts, function(k) {
+      idx <- combos_with_repl(length(searched), k)
+      list(idx = idx, sums = colSums(matrix(searched[idx], nrow = k)))
+    })
+  )
+}
+
+#' @importFrom grDevices rainbow
+#' @noRd
+prepare_plot_context <- function(settings_list) {
+  ld    <- settings_list$lipid_definition
+  bf    <- settings_list$basicFilters
+  mode  <- settings_list$project_info$mode
+  chains <- ld$chains
+  
+  chain_calcs <- lapply(chains, calc_lipid_chain_masses)
+  names(chain_calcs) <- vapply(chains, function(x) as.character(x$chain_id)[1], character(1))
+  
+  headgroup_mass <- if (is.null(ld$head_group) || ld$head_group == "") 0
+  else calculate_adjustment_mass(ld$head_group)
+  
+  validations <- lapply(ld$validations, function(val) {
+    ids    <- setdiff(val$components, "Backbone")
+    combos <- do.call(expand.grid, lapply(ids, function(id) chain_calcs[[as.character(id)]]$mass))
+    masses <- rowSums(combos) + calculate_adjustment_mass(val$adjustments) +
+      if ("Backbone" %in% val$components) headgroup_mass else 0
+    list(combos = combos, masses = masses)
+  })
+  
+  levs <- sort(unique(c(vapply(settings_list$specific_filters, function(x) as.character(x$label), ""),
+                        paste("chain", seq_along(chains)))))
+  colors <- setNames(rainbow(length(levs)), levs)
+  colors["none"] <- "#404040"
+  colors["Intensity Filter"] <- "#D3D3D3"
+  
+  list(
+    rules_prepped = lapply(settings_list$specific_filters, prep_rule, mode = mode),
+    chain_calcs   = chain_calcs,
+    validations   = validations,
+    levs = levs, colors = colors,
+    priorities = c(unlist(lapply(settings_list$specific_filters, function(x) x$rule_priority)),
+                   unlist(lapply(chains, function(x) x$priority)),
+                   unlist(lapply(ld$validations, function(x) x$val_priority)),
+                   "low"),                      # for the intensity filter
+    tol = function(x) pmax(x * bf$tolerance_ppm / 1e6, bf$minimum_dalton)
+  )
+}
+
+# ---- overlay trace builders ---------------------------------------------------
+nl_label <- function(m) {
+  tb <- table(m)
+  if (sum(tb) > 1) paste(paste0(tb, "x ", names(tb)), collapse = ", ") else names(tb)
+}
+
+nl_specs <- function(nl, colors) {
+  if (is.null(nl)) return(list())
+  nl$y   <- pmax(nl$int_found, nl$int_partner)
+  nl$col <- unname(colors[nl$label]); nl$col[is.na(nl$col)] <- "black"
+  nl$txt <- vapply(nl$masses, nl_label, character(1))
+  
+  lines <- lapply(split(nl, nl$label), function(d) list(
+    type = "scatter", mode = "lines",
+    x = as.vector(rbind(d$mz_found, d$mz_partner, NA)),
+    y = as.vector(rbind(d$y, d$y, NA)),
+    line = list(color = d$col[1], width = 1.5, dash = "dot"),
+    hoverinfo = "skip", showlegend = FALSE))
+  txt <- list(list(
+    type = "scatter", mode = "text",
+    x = (nl$mz_found + nl$mz_partner) / 2, y = nl$y, text = nl$txt,
+    textposition = "top center", textfont = list(size = 10, color = nl$col),
+    hoverinfo = "none", showlegend = FALSE))
+  c(unname(lines), txt)
+}
+
+points_spec <- function(p) {
+  if (is.null(p) || nrow(p) == 0)
+    return(list(type = "scatter", mode = "markers", x = NA_real_, y = NA_real_,
+                hoverinfo = "skip", showlegend = FALSE))
+  list(type = "scatter", mode = "markers+text",
+       x = p$x, y = p$y * 1.05, text = p$text, textposition = "top center",
+       marker = list(symbol = "triangle-down", size = 7, color = p$col),
+       textfont = list(size = 10, color = p$col),
+       hoverinfo = "text", showlegend = FALSE)
+}
+
+chain_points <- function(results, mz, intensities, ctx) {
+  cols <- grep("chain", names(results))
+  pts <- list()
+  for (k in seq_len(min(length(cols), length(ctx$chain_calcs)))) {
+    found <- as.numeric(unlist(results[[cols[k]]]))
+    found <- unique(found[!is.na(found)])
+    if (!length(found)) next
+    ref  <- ctx$chain_calcs[[k]]
+    near <- abs(outer(ref$mass, found, "-")) <=
+      matrix(ctx$tol(found), nrow(ref), length(found), byrow = TRUE)
+    keep <- which(colSums(near) > 0)
+    if (!length(keep)) next
+    col <- unname(ctx$colors[gsub("\\.", " ", names(results)[cols[k]])])
+    pts[[length(pts) + 1]] <- data.frame(
+      x = found[keep], y = intensities[match(found[keep], mz)],
+      text = vapply(keep, function(j) paste(ref$formula[near[, j]], collapse = " / "), ""),
+      col = if (is.na(col)) "black" else col, stringsAsFactors = FALSE)
+  }
+  if (length(pts)) do.call(rbind, pts) else NULL
+}
+
+validation_points <- function(results, mz, intensities, ctx) {
+  n_val <- length(ctx$validations)
+  if (n_val == 0) return(NULL)
+  rn <- names(results)
+  val_cols <- rn[(length(rn) - n_val):(length(rn) - 1)]
+  pts <- list()
+  for (k in seq_len(n_val)) {
+    found <- as.numeric(unlist(results[[val_cols[k]]]))
+    found <- unique(found[!is.na(found)])
+    if (!length(found)) next
+    v <- ctx$validations[[k]]
+    near <- abs(outer(v$masses, found, "-")) <=
+      matrix(ctx$tol(found), length(v$masses), length(found), byrow = TRUE)
+    keep <- which(colSums(near) > 0)
+    if (!length(keep)) next
+    pts[[length(pts) + 1]] <- data.frame(
+      x = found[keep], y = intensities[match(found[keep], mz)],
+      text = vapply(keep, function(j)
+        paste0(round(as.numeric(unlist(v$combos[which(near[, j])[1], ])),2), collapse = "+"), ""),
+      col = "#404040", stringsAsFactors = FALSE)
+  }
+  if (length(pts)) do.call(rbind, pts) else NULL
+}
+
 
 #' @title Plotting one spectrum
 #'
@@ -572,134 +662,69 @@ neutral_losses_from_results <- function(results, feature_id, rules, spectrum,
 #' 
 #' @return The plotly figure.
 #' 
-#' @importFrom plotly plot_ly add_segments layout 
+#' @importFrom plotly plot_ly add_segments add_trace layout
 #' @importFrom grDevices rainbow
 #' @noRd
-plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results){
- 
+# ---- main plot -----------------------------------------------------------------
+plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
+                            ctx, show = character(0)) {
   mz <- unlist(spectrum$mz)
   intensities <- unlist(spectrum$intensity)
   filtered_spectrum <- cleaning_ref(spectrum, settings_list$basicFilters)
-  if(set_isotope_sum) results <- summarize_isotope_peaks(results, spectrum)
-
+  if (set_isotope_sum) results <- summarize_isotope_peaks(results, spectrum)
+  
   start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2) + 3
-  filter_results <- results[, start_filtercols:(ncol(results)-1), drop = FALSE]
+  filter_results <- results[, start_filtercols:(ncol(results) - 1), drop = FALSE]
   filter_results[["Intensity Filter"]] <- list(setdiff(mz, unlist(filtered_spectrum$mz)))
   
+  category <- resolve_filter_category(mz, filter_results, ctx$priorities)
+  category <- factor(category, levels = c("none", "Intensity Filter", ctx$levs))
   
-  #Priorities of the rule, chain and validation filter. Adding a "low" priority for peaks outside the intensity filter
-  filter_priorities <- unlist(lapply(settings_list$specific_filters, function(x){x$rule_priority}))
-  filter_priorities <- c(filter_priorities, unlist(lapply(settings_list$lipid_definition$chains, function(x){x$priority})))
-  filter_priorities <- c(filter_priorities, unlist(lapply(settings_list$lipid_definition$validations, function(x){x$val_priority})))
-  if(!is.null(filter_results[["Intensity Filter"]])) filter_priorities <- c(filter_priorities, "low")
-  
-  category <- resolve_filter_category(mz = mz,
-                                      filter_results = filter_results,
-                                      filter_priority = filter_priorities)
-
-  
-  #Setting the colors for the categories
-  levs <- sort(unique(c(unlist(lapply(settings_list$specific_filters, function(x){x$label})),
-                      paste("chain", seq(length(settings_list$lipid_definition$chains)))) ))
-  colors <- setNames(rainbow(length(levs)), levs)
-  colors["none"] <- "#404040"
-  colors["Intensity Filter"] <- "#D3D3D3"
-  category  <- factor(category , levels = c("none","Intensity Filter",levs ))
-
-  # ---- neutral losses -> shapes + annotations (hidden by default) ----
-  nl <- neutral_losses_from_results(results, feature_id = results$FEATURE_ID[1],
-                                    settings_list$specific_filters, 
+  nl <- neutral_losses_from_results(results, results$FEATURE_ID[1], ctx$rules_prepped,
                                     spectrum, tol = settings_list$basicFilters$minimum_dalton)
-
-  shapes <- list(); annots <- list()
-
-  if(!is.null(nl)){
-    
-    for (i in seq_len(nrow(nl))) {
-      y <- max(nl$int_found[i], nl$int_partner[i])  
-      col <- unname(colors[nl$label[i]])            
-      if (is.na(col)) col <- "black"
-      
-      shapes[[i]] <- list(
-        type = "line", xref = "x", yref = "y",
-        x0 = nl$mz_found[i],   y0 = y,
-        x1 = nl$mz_partner[i], y1 = y,
-        color = category, colors = colors,
-        line = list(color = col, width = 1.5, dash = "dot"),
-        visible = FALSE
-      )
-      #Text for neutral losses
-
-      mass_counts <- table(unlist(nl$masses[i]))
-      annotation_txt <- if (sum(mass_counts) > 1) {
-        paste(paste0(mass_counts, "x ", names(mass_counts)), collapse = ", ")
-      } else {
-        names(mass_counts)
-      }
-      
-      annots[[i]] <- list(
-        x = (nl$mz_found[i] + nl$mz_partner[i]) / 2,
-        y = y, yshift = 8,
-        xref = "x", yref = "y",
-        text = annotation_txt,
-        showarrow = FALSE, font = list(size = 10, color = col),
-        visible = FALSE
-      )
-    }
-    n <- length(shapes)
-    set_vis <- function(v) {
-      out <- list()
-      for (i in seq_len(n)) {
-        out[[sprintf("shapes[%d].visible", i - 1)]]      <- v
-        out[[sprintf("annotations[%d].visible", i - 1)]] <- v
-      }
-      out
-    }
-    
+  overlays <- list(
+    nl    = nl_specs(nl, ctx$colors),
+    chain = list(points_spec(chain_points(results, mz, intensities, ctx))),
+    val   = list(points_spec(validation_points(results, mz, intensities, ctx)))
+  )
+  
+  # overlay traces come first -> their indices are known (0-based, as plotly.js expects)
+  fig <- plot_ly()
+  idx <- list(); n <- 0L
+  for (grp in names(overlays)) {
+    specs <- overlays[[grp]]
+    idx[[grp]] <- n + seq_along(specs) - 1L
+    for (s in specs)
+      fig <- do.call(plotly::add_trace, c(list(p = fig), s, list(visible = grp %in% show)))
+    n <- n + length(specs)
   }
   
-
-  fig <- plot_ly() %>%
-    add_segments(
-      x = mz, xend = mz, y = 0, yend = intensities,
-      color = category, colors = colors,
-      text = paste0("m/z: ", mz, "<br>Intensity: ", intensities),
-      hoverinfo = "text", showlegend = TRUE
-    ) %>%
-    add_segments(
-      x = spectrum$precursorMz, xend = spectrum$precursorMz,
-      y = 0, yend = max(intensities),
-      line = list(color = "red", dash = "dash", width = 1),
-      name = "Precursor", inherit = FALSE
-    ) %>%
-    layout(
-      hovermode = "x",
-      xaxis = list(title = "m/z"),
-      yaxis = list(title = "Intensity"),
-      shapes = shapes,
-      annotations = annots,
-      margin = list(b = 110)
-    )
+  fig <- fig %>%
+    add_segments(x = spectrum$precursorMz, xend = spectrum$precursorMz,   # precursor stays as is
+                 y = 0, yend = max(intensities),
+                 line = list(color = "red", dash = "dash", width = 1),
+                 name = "Precursor", inherit = FALSE)
   
-  if (!is.null(nl)) {
-    fig <- fig %>% layout(
-      updatemenus = list(list(
-        type = "buttons", direction = "right",
-        x = 0, y = -0.2, xanchor = "left", yanchor = "top",
-        active = -1,
-        buttons = list(
-          list(
-            label  = "Show neutral losses",
-            method = "relayout",
-            args   = list(c(set_vis(TRUE),  list("updatemenus[0].buttons[0].label" = "Hide neutral losses"))),
-            args2  = list(c(set_vis(FALSE), list("updatemenus[0].buttons[0].label" = "Show neutral losses")))
-          )
-        )
-      ))
+  hover <- paste0("m/z: ", mz, "<br>Intensity: ", intensities)
+  for (lv in levels(category)) {
+    i <- which(category == lv)
+    if (!length(i)) next
+    col <- unname(ctx$colors[lv])
+    if (is.na(col)) col <- "#808080"          # fallback if a name doesn't match
+    fig <- fig %>% add_segments(
+      x = mz[i], xend = mz[i], y = 0, yend = intensities[i],
+      name = lv, legendgroup = lv,
+      line = list(color = col, width = 1),
+      text = hover[i], hoverinfo = "text", showlegend = TRUE, inherit = FALSE
     )
   }
-  fig
+  
+  fig <- fig %>% layout(hovermode = "x", xaxis = list(title = "m/z"),
+                        yaxis = list(title = "Intensity"))
+  
+  list(fig = fig, idx = idx)
 }
+
 
 
 
@@ -724,27 +749,19 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results){
 #' 
 #' @noRd
 resolve_filter_category <- function(mz, filter_results, filter_priority) {
-  priority_levels = c( "low","basic", "important", "required")
+  priority_levels <- c("low", "basic", "important", "required")
+  rank <- match(filter_priority, priority_levels)
+  rank[is.na(rank)] <- 1L
   
-  priority_tuples <- data.frame(
-    name = names(filter_results),
-    priority = filter_priority
-  )
+  hit <- vapply(filter_results,
+                function(vals) mz %in% unlist(vals, use.names = FALSE),
+                logical(length(mz)))
+  if (!is.matrix(hit)) hit <- matrix(hit, nrow = length(mz))
   
-  sapply(mz, function(m) {
-    hits <- names(filter_results)[
-      vapply(filter_results, function(vals) {
-        if(is.na(vals))return(logical(1))
-        any(abs(as.numeric(unlist(vals)) - m) == 0)}, logical(1))
-    ]
-    if (length(hits) == 0) return("none")
-    
-    priority_tuples <- priority_tuples[priority_tuples$name %in% hits,]
-    gsub("\\."," ",priority_tuples$name[
-      which.max(match(priority_tuples$priority, priority_levels))
-    ])
-
-  })
+  best <- max.col(sweep(hit, 2, rank, `*`), ties.method = "first")
+  out  <- gsub("\\.", " ", names(filter_results)[best])
+  out[rowSums(hit) == 0] <- "none"
+  out
 }
 
 #' @title Plotting ms1 for one feature
@@ -783,7 +800,7 @@ plotMS1 <- function(ms1_data, selectedFeature){
 }
 
 collapse_peaks <- function(x, mz, int, tol = 1.1) {
-  if (all(is.na(x))) return(NA_real_)          # keep NA cells as NA
+  if (all(is.na(x))) return(NA_real_)   
   x <- sort(unique(x[!is.na(x)]))
   if (length(x) < 2) return(x)
   
@@ -825,12 +842,60 @@ summarize_isotope_peaks <- function(results, spectrum) {
 #' @importFrom Rdisop decomposeMass
 #' @importFrom MetaboCoreUtils mz2mass
 #' @noRd
-calculateFormulaFromMass <- function(mass, adduct){
+calculateFormulaFromMass <- function(mass, adduct, ppm = 5,
+                                     max_el = "C100H150N10O20P2S2") {
   
-  neutral_mass <- mz2mass(mass, adduct = adduct)
-  formula_candidates <- decomposeMass(mass = neutral_mass, ppm = 5, z = 0)
-  #formula_candidates <- formula_candidates[formula_candidates$valid == "Valid"]
   
+  neutral_mass <- MetaboCoreUtils::mz2mass(mass, adduct = adduct)[1]
+  
+  res <- Rdisop::decomposeMass(
+    mass        = neutral_mass,
+    ppm         = ppm,
+    z           = 0,
+    elements    = Rdisop::initializeElements(c("C", "H", "N", "O", "P", "S")),
+    maxElements = max_el
+  )
+  
+  if (is.null(res) || length(res$formula) == 0) {
+    return(data.frame(formula = "-", score = NA_real_,
+                      exactmass = NA_real_, ppm_error = NA_real_))
+  }
+  
+
+ cand <- data.frame(
+    formula   = res$formula,
+    score     = res$score,
+    exactmass = res$exactmass,
+    valid     = res$valid,
+    stringsAsFactors = FALSE
+  )
+  cand <- cand[cand$valid == "Valid", , drop = FALSE]
+  if (nrow(cand) == 0) return(cand)
+  
+  # element counts for plausibility filtering
+  count_el <- function(f, el) {
+    m <- regmatches(f, regexpr(paste0(el, "(?![a-z])\\d*"), f, perl = TRUE))
+    if (length(m) == 0) return(0)
+    n <- sub(el, "", m)
+    if (n == "") 1 else as.numeric(n)
+  }
+  cand$C <- vapply(cand$formula, count_el, numeric(1), "C")
+  cand$H <- vapply(cand$formula, count_el, numeric(1), "H")
+  cand$N <- vapply(cand$formula, count_el, numeric(1), "N")
+  cand$O <- vapply(cand$formula, count_el, numeric(1), "O")
+  cand$P <- vapply(cand$formula, count_el, numeric(1), "P")
+  cand$S <- vapply(cand$formula, count_el, numeric(1), "S")
+  
+  keep <- cand$C > 0 &
+    cand$H / cand$C >= 0.2 & cand$H / cand$C <= 3.1 &
+    cand$N / cand$C <= 1.3 & cand$O / cand$C <= 1.2 &
+    cand$P / cand$C <= 0.3 & cand$S / cand$C <= 0.8
+  cand <- cand[keep, , drop = FALSE]
+  
+  
+  cand$ppm_error <- (as.numeric(cand$exactmass) - as.numeric(neutral_mass)) /
+    as.numeric(neutral_mass) * 1e6
+  cand[order(abs(cand$ppm_error)), , drop = FALSE]
 }
 
 
