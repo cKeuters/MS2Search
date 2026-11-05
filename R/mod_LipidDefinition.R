@@ -265,8 +265,14 @@ chain_block_ui <- function(id, init_chain) {
         tags$label("C-Atoms"),
         div(
           class = "control-inputs",
-          numericInput(ns("c_min"), "min", value = init_chain$C_min, min = 1, max = 100, step = 2, width = "62px"),
-          numericInput(ns("c_max"), "max", value = init_chain$C_max, min = 1, max = 100, step = 2, width = "62px")
+          numericInput(ns("c_min"), "min", value = init_chain$C_min,
+                       min = 0, max = 100,
+                       step = if (isTRUE(init_chain$even_steps)) 2 else 1,
+                       width = "62px"),
+          numericInput(ns("c_max"), "max", value = init_chain$C_max,
+                       min = 0, max = 100,
+                       step = if (isTRUE(init_chain$even_steps)) 2 else 1,
+                       width = "62px")
         )
       ),
       div(
@@ -355,69 +361,83 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     })
     
     observeEvent(input$remove_chain, on_remove(id), ignoreInit = TRUE)
-    observeEvent(input$even_steps,{
-      chain_state$even_steps <- isTRUE(input$even_steps)
-      
-      step_size <- ifelse(isTRUE(input$even_steps), 2, 1)
-      updateNumericInput(session, "c_min", step = step_size)
-      updateNumericInput(session, "c_max", step = step_size)
-    })
     
     #--------------------------------------------------------------------------
     # Validating NumericInputs
     #--------------------------------------------------------------------------
     
-    observeEvent(input$c_min, {
-      if(input$c_min < 0) updateNumericInput(session, "c_min", value = 0)
-      if(input$c_min > 100) updateNumericInput(session, "c_min", value = 100)
-      chain_state$C_min <- input$c_min
-      updateNumericInput(
-        session, "c_max",
-        min = chain_state$C_min,
-        value = max(input$c_max, chain_state$C_min)
-      )
-    })
-    
-    observeEvent(input$c_max, {
-      if(input$c_max < 0) updateNumericInput(session, "c_max", value = 0)
-      if(input$c_max > 100) updateNumericInput(session, "c_max", value = 100)
-      chain_state$C_max <- input$c_max
-      test_maxDB()
-    })
-    
-    observeEvent(input$db_min, {
-      if(input$db_min < 0) updateNumericInput(session, "db_min", value = 0)
-      if(input$db_min > 50) updateNumericInput(session, "db_min", value = 50)
-
-      chain_state$DB_min <- input$db_min 
-      updateNumericInput(
-        session, "db_max",
-        min = chain_state$DB_min,
-        value = max(input$db_max, chain_state$DB_min)
-      )
-    })
-    
-    observeEvent(input$db_max, {
-      if(input$db_max < 0) updateNumericInput(session, "db_max", value = 0)
-      if(input$db_max > 50) updateNumericInput(session, "db_max", value = 50)
-      test_maxDB()
-      chain_state$DB_max <- input$db_max
-    })
-    
-    test_maxDB <- function(){
-      max_db <- floor(chain_state$C_max / 2)
-      updateNumericInput(
-        session, "db_max",
-        max = max_db,
-        value = min(input$db_max, max_db)
-      )
-      updateNumericInput(
-        session, "db_min",
-        max = max_db,
-        value = min(input$db_min, max_db)
-      )
+    # helper: only send an update if the value really differs
+    update_if_changed <- function(id, current, new, ...) {
+      if (is.null(current) || is.na(current) || !isTRUE(all.equal(current, new))) {
+        updateNumericInput(session, id, value = new, ...)
+      }
     }
     
+    observeEvent(input$even_steps, {
+      chain_state$even_steps <- isTRUE(input$even_steps)
+      step_size <- if (isTRUE(input$even_steps)) 2 else 1
+      updateNumericInput(session, "c_min", step = step_size)
+      updateNumericInput(session, "c_max", step = step_size)
+    }, ignoreInit = FALSE)
+    
+    # --- C atoms ---------------------------------------------------------------
+    observeEvent(input$c_min, {
+      req(input$c_min)                       # ignore NA while the user is typing
+      v <- min(max(input$c_min, 0), 100)
+      if (v != input$c_min) updateNumericInput(session, "c_min", value = v)
+      
+      chain_state$C_min <- v
+      updateNumericInput(session, "c_max", min = v)          # only the limit
+      if (!is.null(input$c_max) && !is.na(input$c_max) && input$c_max < v) {
+        updateNumericInput(session, "c_max", value = v)      # only if violated
+      }
+    }, ignoreInit = TRUE)
+    
+    observeEvent(input$c_max, {
+      req(input$c_max)
+      v <- min(max(input$c_max, chain_state$C_min), 100)
+      if (v != input$c_max) updateNumericInput(session, "c_max", value = v)
+      
+      chain_state$C_max <- v
+      test_maxDB()
+    }, ignoreInit = TRUE)
+    
+    # --- Double bonds ----------------------------------------------------------
+    observeEvent(input$db_min, {
+      req(input$db_min)
+      max_db <- floor(chain_state$C_max / 2)
+      v <- min(max(input$db_min, 0), max_db)
+      if (v != input$db_min) updateNumericInput(session, "db_min", value = v)
+      
+      chain_state$DB_min <- v
+      updateNumericInput(session, "db_max", min = v)
+      if (!is.null(input$db_max) && !is.na(input$db_max) && input$db_max < v) {
+        updateNumericInput(session, "db_max", value = v)
+      }
+    }, ignoreInit = TRUE)
+    
+    observeEvent(input$db_max, {
+      req(input$db_max)
+      max_db <- floor(chain_state$C_max / 2)
+      v <- min(max(input$db_max, chain_state$DB_min), max_db)
+      if (v != input$db_max) updateNumericInput(session, "db_max", value = v)
+      
+      chain_state$DB_max <- v
+    }, ignoreInit = TRUE)
+    
+    # --- Only adjust limits, and only change values that violate them ----------
+    test_maxDB <- function() {
+      max_db <- floor(chain_state$C_max / 2)
+      updateNumericInput(session, "db_max", max = max_db)
+      updateNumericInput(session, "db_min", max = max_db)
+      
+      if (!is.null(input$db_max) && !is.na(input$db_max) && input$db_max > max_db) {
+        updateNumericInput(session, "db_max", value = max_db)
+      }
+      if (!is.null(input$db_min) && !is.na(input$db_min) && input$db_min > max_db) {
+        updateNumericInput(session, "db_min", value = max_db)
+      }
+    }
     #--------------------------------------------------------------------------
     # Modification coordination
     #--------------------------------------------------------------------------

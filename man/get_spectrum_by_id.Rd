@@ -4,16 +4,12 @@
 \alias{get_spectrum_by_id}
 \title{Get a single spectrum from a Spectra object by feature ID}
 \usage{
-get_spectrum_by_id(spectra, feature_id, id_column = "FeatureID")
+get_spectrum_by_id(spectra, feature_id)
 }
 \arguments{
 \item{spectra}{A `Spectra` object containing multiple spectra.}
 
 \item{feature_id}{Character or numeric. The ID to match against.}
-
-\item{id_column}{Character. Name of the spectraVariable that holds
-the feature ID (e.g. "spectrumId", "feature_id", "acquisitionNum").
-Defaults to "spectrumId".}
 }
 \value{
 A `Spectra` object subset to the matching spectrum/spectra.

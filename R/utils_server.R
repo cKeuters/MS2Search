@@ -181,9 +181,6 @@ load_project <- function(zip_path) {
 #'
 #' @param spectra A `Spectra` object containing multiple spectra.
 #' @param feature_id Character or numeric. The ID to match against.
-#' @param id_column Character. Name of the spectraVariable that holds
-#'   the feature ID (e.g. "spectrumId", "feature_id", "acquisitionNum").
-#'   Defaults to "spectrumId".
 #'
 #' @return A `Spectra` object subset to the matching spectrum/spectra.
 #'   Throws an informative error if no match is found.
@@ -446,6 +443,8 @@ create_brkrrba_file <- function(settings_list, file_path){
 #' @param include_precursor Boolean if precusor is added to the spectrum mz values
 #' 
 #' @return The found peaks with partner
+#' 
+#' @importFrom data.table data.table rbindlist
 #' 
 #' @noRd
 neutral_losses_from_results <- function(results, feature_id, prepped, spectrum,
