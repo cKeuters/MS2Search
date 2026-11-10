@@ -22,6 +22,10 @@ mod_LipidDefinition_ui <- function(id) {
           class = "headgroup-box",
           textInput(ns("headgroup"), label = "Backbone", placeholder = "z.B. C3H8O3", width = "160px")
         ),
+        div(
+          class = "headgroup-box",
+          textInput(ns("shorthand"), label = "Shorthand", placeholder = "z.B. CER", width = "160px")
+        ),
         actionButton(ns("add_chain"), "+ Chain", class = "btn-add-chain")
       ),
       div(id = ns("chains_container"), class = "chains-container"),
@@ -54,7 +58,6 @@ mod_LipidDefinition_ui <- function(id) {
 #' 
 #' @param id Shiny module id
 #' @param load_trigger Holds the chains when new data is loaded.
-#' @param head_group The backbone or headgroup the chains are attached to as string.
 #' @param input,output,session Internal parameters for {shiny}.
 #' 
 #' @return Returns a list with a chain list and a validation list.
@@ -70,6 +73,12 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       head_group(input$headgroup)
     })
 
+    shorthand <- reactiveVal("")
+    
+    observeEvent(input$shorthand, {
+      shorthand(input$shorthand)
+    })
+    
     #-----------------------------------------------------------------------------
     # Chains
     #-----------------------------------------------------------------------------
@@ -202,6 +211,12 @@ mod_LipidDefinition_server <- function(id, load_trigger){
         "headgroup",
         value = head_group()
       )
+      shorthand(load_trigger()$shorthand)
+      updateTextInput(
+        session = session,
+        "shorthand",
+        value = shorthand()
+      )
     }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
     
@@ -218,7 +233,8 @@ mod_LipidDefinition_server <- function(id, load_trigger){
           validation_modules[[v]]()
         })
       }),
-      head_group = head_group()
+      head_group = head_group(),
+      shorthand = shorthand()
       
     )
     })

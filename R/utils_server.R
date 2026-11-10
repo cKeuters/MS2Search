@@ -223,8 +223,11 @@ get_spectrum_by_id <- function(spectra, feature_id) {
 #' @noRd
 create_brkrrba_file <- function(settings_list, file_path){
   
-  searchedSpecies <- "CER"
+  searchedSpecies <- settings_list$lipid_definition$shorthand
+  searchedSpecies <- ifelse(searchedSpecies == "", "Unk" ,searchedSpecies)
   annotationName <- sprintf("%s {carbonsInAllChains}:{DBEinAllChains}", searchedSpecies )
+  
+  #Variables of optional modifictaions..........................................
   
   chain_opt_mods <- unname(lapply(seq_along(settings_list$lipid_definition$chains), function(i) {
     x <- settings_list$lipid_definition$chains[[i]]
@@ -236,13 +239,15 @@ create_brkrrba_file <- function(settings_list, file_path){
     counts <- tibble(formula = unlist(formulas)) %>% count(formula)
     lapply(seq_len(nrow(counts)), function(j) {
       list(
-        name = mod_name <- gsub( "=", "DB_",paste0(counts$formula[j], "_", i)),
+        name = gsub( "=", "DB_",paste0(counts$formula[j], "_", i)),
         valueType = "intRange",
         value = c(0, counts$n[j])
       )
     })
     
   }))
+  
+  #Formulas of the chains for the descriptors ..................................
 
   chain_formulas <- lapply(seq_along(settings_list$lipid_definition$chains), function(i) {
     x <- settings_list$lipid_definition$chains[[i]]
@@ -298,62 +303,209 @@ create_brkrrba_file <- function(settings_list, file_path){
     matches <- gregexpr("\\{([^}]+)\\}", formula, perl = TRUE)
     vars <- unique(regmatches(formula, matches)[[1]])
     if(sum(grepl("DB_", vars)) != 0){
-      formula <- paste0(formula, " - ", paste(lapply(vars[grepl("DB_", vars)], function(x){
+      formula <- paste0(formula, paste(lapply(vars[grepl("DB_", vars)], function(x){
         paste0(" - H(",x,")")
       })))
     }
-
-    
     formula
     
   })
+  
+  #descriptors of the chains ...................................................
   
   chain_descriptors <- lapply(seq_along(chain_formulas),function(i){
     list(
       label = paste0("Chain ", i),
       query = sprintf(
-        "QUERY scaninfo(MS2DATA) WHERE MS2PROD=formula(%s):TOLERANCEMZ=0.01",
-        chain_formulas[i]
+        "QUERY scaninfo(MS2DATA) WHERE MS2PROD=formula(%s):TOLERANCEMZ=%s",
+        chain_formulas[i], settings_list$basicFilters$minimum_dalton
       ),
       signalInfoLabel = paste0("{carbonsPerChain", i, "}:{DBEPerChain", i, "}")
     )
   })
   
-  neutralPrecursorFormula <- paste0("{backbone} + ", paste(chain_formulas, collapse = " + "))
+  #descriptors of the rules  ..................................................
   
-  #Building a sublevel for Rules
-  if(length(settings_list$specific_filters)!= 0) {subLevel <- list(
-    level = "Rule Level",
-    annotationName = "Unknown Annotation Name",
-    descriptors = lapply(settings_list$specific_filters, function(rule){
-      
+  #function to get the combination of masses for the sequential masses
+  get_sums <- function(masses, k) {
+    if (k == 1) return(masses)
+    combos <- expand.grid(rep(list(seq_along(masses)), k))
+    unique(apply(combos, 1, function(idx) sum(masses[idx])))
+  }
+  
+  rule_descriptors <- lapply(settings_list$specific_filters, function(rule){
+
       masses <- vapply(rule$entries, function(e) {
         resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
       }, numeric(1))
+      NL_or_peak <- if (rule$is_mzPeak) "MS2PROD" else "MS2NL"
       
-      NL_or_peak <- ifelse(rule$is_mzPeak, "MS2PROD", "MS2NL")
-      query <- paste0("QUERY scaninfo(MS2DATA) WHERE ",NL_or_peak ,"=(",
-                      paste(masses, collapse = " OR "),
-                      "):TOLERANCEMZ=0.01")
+      if (isTRUE(rule$sequential)) {
+        
+        repeat_queries <- lapply(seq_len(rule$min_repeat), function(k) {
+          
+          vals <- sort(get_sums(masses, k))
+          
+          paste0(
+            NL_or_peak,
+            "=",
+            vals,
+            collapse = " OR "
+          )
+        })
+        
+        query <- paste0(
+          "QUERY scaninfo(MS2DATA) WHERE ",
+          paste(repeat_queries, collapse = " AND "),
+          ":TOLERANCEMZ=",
+          settings_list$basicFilters$minimum_dalton
+        )
+        
+      } else {
+        
+        query <- paste0(
+          "QUERY scaninfo(MS2DATA) WHERE ",
+          paste0(NL_or_peak, "=", masses, collapse = " OR "),
+          ":TOLERANCEMZ=",
+          settings_list$basicFilters$minimum_dalton
+        )
+        
+      }
 
       list(
         label = rule$label,
         query = query,
         signalInfoLabel = paste0(NL_or_peak, ": ", paste(sapply(rule$entries, `[[`, "value"), collapse = ", "))
       )
-    }),
-    requiredSignalsForAnnotation = 0
-  )}
-  else subLevel <- NULL
+    })
   
+  #Precursor validation formula  ..................................................
   
-  #full structure
-  lipid_def <- list(
+  #Precursor validation from the validation list
+  validation_names <- sapply(settings_list$lipid_definition$validations, function(x) x$name)
+  chain_ids <- sapply(settings_list$lipid_definition$chains, function(x) x$chain_id)
+  if("precursor validation" %in% validation_names){
+    pre_val <- settings_list$lipid_definition$validations[which(validation_names == "precursor validation")]
+    parts <- c()
+    
+    for (com in pre_val[[1]]$components) {
+      if (com == "Backbone") {
+        parts <- c(parts, "{backbone}")
+      } else {
+        i <- which(chain_ids == com)
+        parts <- c(parts, chain_formulas[i])
+      }
+    }
+    neutralPrecursorFormula <- paste(parts, collapse = " + ")
+    
+    if(is.null(settings_list$lipid_definition$head_group) || settings_list$lipid_definition$head_group == ""){ 
+      neutralPrecursorFormula <- paste(neutralPrecursorFormula, "-Na")}
+
+    if(pre_val[[1]]$adjustments != ""){
+      add <- ifelse(substr(pre_val[[1]]$adjustments,1,1) == "-", " - ", " + ")
+      matches <- regmatches(pre_val[[1]]$adjustments, gregexpr("([A-Z][a-z]?)([0-9]*)", pre_val[[1]]$adjustments))[[1]]
+      element_counts <- data.frame(matches = matches) %>%
+        tidyr::extract(
+          matches,
+          into = c("element", "count"),
+          regex = "^([A-Za-z]+)([0-9]*)$"
+        ) %>%
+        dplyr::mutate(
+          count = dplyr::if_else(count == "", "1", count)
+        )
+      adjustments <- ""
+      for(elem in unique(element_counts$element)){
+        elem_count <- sum(as.numeric(element_counts[which(element_counts$element == elem),"count"]))
+        adjustments <- paste0(adjustments, add, elem, ifelse(elem_count == 1, "", elem_count))
+      }
+      neutralPrecursorFormula <- paste(neutralPrecursorFormula, adjustments)
+      }
+
+
+  }
+  else neutralPrecursorFormula <- paste0("{backbone} + ", paste(chain_formulas, collapse = " + "))
+  
+  #Molecular annotation name  ..................................................
+  
+  chain_opt_mod_names <- unlist(lapply(chain_opt_mods, function(x)
+      sapply(x, `[[`, "name")
+    ))
+    molecular_annotationName <- searchedSpecies 
+    chain_strings <- c()
+    chain_seq <- seq_along(settings_list$lipid_definition$chains)
+    for (i in chain_seq) {
+      mods_i <- chain_opt_mod_names[
+        grepl(paste0("_", i, "$"), chain_opt_mod_names)
+      ]
+      mod_elements <- sub(
+        "H.*", "",
+        sub(".*?_", "", sub("_[^_]+$", "", mods_i))
+      )
+
+      chain_strings <- c(
+        chain_strings,
+        sprintf(
+          "{carbonsPerChain%d}:{DBEPerChain%d};%s",
+          i, i,
+          paste(
+            paste0(mod_elements, "{", mods_i, "}"),
+            collapse = ","
+          )
+        )
+      )
+    }
+    molecular_annotationName <- paste(
+      molecular_annotationName,
+      paste(chain_strings, collapse = "/")
+    )
+    
+    #Sublevel of the chains  ..................................................
+    
+    req_chains <- sum(
+      sapply(settings_list$lipid_definition$chains, function(x) x$priority) == "required"
+    )
+    
+    chain_subLevel <- list(
+      level = "MOLECULAR_SPECIES_LEVEL",
+      annotationName = molecular_annotationName,
+      descriptors = chain_descriptors,
+      requiredSignalsForAnnotation = req_chains
+    )
+    
+    #Setting the first level to rules or chains, if no rules ...................
+    
+    has_rules <- length(rule_descriptors) > 0
+    
+    if(has_rules) {
+      req_rules <- sum(
+        sapply(settings_list$specific_filters, function(x) x$rule_priority) == "required"
+      )
+    }else req_rules <- 0
+    
+    validation_rule <- paste(
+      paste0("{carbonsPerChain", chain_seq, "}", collapse = " + "),
+      "== {carbonsInAllChains} &&",
+      paste0("{DBEPerChain", chain_seq, "}", collapse = " + "),
+      "== {DBEinAllChains}"
+    )
+    
+    level <- list(
+      level = "Species Level",
+      annotationName = if (has_rules) annotationName else molecular_annotationName,
+      descriptors = if (has_rules) rule_descriptors else chain_descriptors,
+      requiredSignalsForAnnotation = if (has_rules) req_rules else req_chains,
+      subLevel = if (has_rules) chain_subLevel,
+      validationRule = validation_rule
+    )
+
+    #Combining all elements to the full structure ..............................
+    
+    lipid_def <- list(
     variables = c(list(
       list(
         name = "backbone",
         valueType = "formula",
-        value = ifelse(is.null(settings_list$lipid_definition$head_group),"", settings_list$lipid_definition$head_group)
+        value = ifelse(is.null(settings_list$lipid_definition$head_group) || settings_list$lipid_definition$head_group == "" ,"Na", settings_list$lipid_definition$head_group)
       ),
       list(name = "numberOfChains",
            valueType = "int",
@@ -376,7 +528,11 @@ create_brkrrba_file <- function(settings_list, file_path){
       list(
         name = paste0("carbonsPerChain", i),
         valueType = "intRange",
-        value = c(x$C_min, x$C_max)
+        value = if (isTRUE(x$even_steps)) {
+            c(x$C_min, x$C_max, 2)
+          } else {
+            c(x$C_min, x$C_max)
+          }
       )
     },
     settings_list$lipid_definition$chains,
@@ -402,21 +558,15 @@ create_brkrrba_file <- function(settings_list, file_path){
             ionNotation = ifelse(settings_list$project_info$mode == "pos", "[M+H]+", "[M-H]-"),
             neutralPrecursorFormula = neutralPrecursorFormula,
             #regressionParametersCCS = list(),
-            annotationConfiguration =
-              list(
-                level = "Species Level",
-                annotationName = annotationName,
-                descriptors = chain_descriptors,
-                subLevel = subLevel
-              )
+            annotationConfiguration = level
             
           ))
       )
       )
   )
   
-
-  #json_file <- paste0(settings_list$project_info$out_dir,"/lipid_def_",settings_list$project_info$project_name,".brkrrba")
+    #Saving file ...............................................................
+    
   json_file <- file_path
   write(toJSON(lipid_def, auto_unbox = TRUE, pretty = TRUE), json_file)
   
@@ -699,7 +849,7 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
   }
   
   fig <- fig %>%
-    add_segments(x = spectrum$precursorMz, xend = spectrum$precursorMz,   # precursor stays as is
+    add_segments(x = spectrum$precursorMz, xend = spectrum$precursorMz, 
                  y = 0, yend = max(intensities),
                  line = list(color = "red", dash = "dash", width = 1),
                  name = "Precursor", inherit = FALSE)
@@ -707,9 +857,10 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
   hover <- paste0("m/z: ", mz, "<br>Intensity: ", intensities)
   for (lv in levels(category)) {
     i <- which(category == lv)
+    if(length(mz[i])==0) next
+    
     if (!length(i)) next
     col <- unname(ctx$colors[lv])
-    if (is.na(col)) col <- "#808080"          # fallback if a name doesn't match
     fig <- fig %>% add_segments(
       x = mz[i], xend = mz[i], y = 0, yend = intensities[i],
       name = lv, legendgroup = lv,

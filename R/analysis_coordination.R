@@ -734,7 +734,7 @@ calc_lipid_chain_masses <- function(chains){
     refined_formula
   }))
 
-  combos$mass <- MetaboCoreUtils::calculateMass(combos$formula)
+  combos$mass <- suppressWarnings(MetaboCoreUtils::calculateMass(combos$formula))
   combos <- unique(combos)
 
   if(is.null(optional_mods))combos[c("formula", "mass")]
