@@ -31,7 +31,6 @@ load_spectra <- function(ms2_file, add_log = NULL){
     key <- paste(
       sprintf("%.5f", spectraData(sp)$precursorMz),
       sprintf("%.2f", spectraData(sp)$rtime),
-      spectraData(sp)$SPECTYPE,
       n_peaks,
       sep = "|"
     )
@@ -91,25 +90,28 @@ createSpectradf <- function(operations, featureTableId){
     character(1)
   )
 
-  spectra_df <- S4Vectors::DataFrame(
-    msLevel = as.integer(2),
-    rtime = as.numeric(featureTable$rtInSeconds), 
-    precursorMz = as.numeric(featureTable$mass),  
-    FEATURE_ID = as.character(rownames(featureTable)),
-    scanIndex  = as.integer(rownames(featureTable)),
-    metaboScape_ID = featureTable$id,
-    adducts = adducts,
-    polarity = as.integer(pol)
-  )
-  
   # plan(multisession, workers = 4)
   msms <- future_lapply(featureTable$id, function(id){
     res <- operations$retrieveFeatureMsMsSpectra(id)
     fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
   })
+  mz <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$mz})
+  intensity <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$intensity})
   
-  spectra_df$mz <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$mz})
-  spectra_df$intensity <- lapply(msms, function(feature){feature$spectra[[1]]$signals[[1]]$intensity})
+
+  spectra_df <- S4Vectors::DataFrame(
+    msLevel = as.integer(2),
+    rtime = as.numeric(featureTable$rtInSeconds), 
+    precursorMz = as.numeric(featureTable$mass),  
+    FEATURE_ID = as.character(rownames(featureTable)),
+    FEATURE_KEY = as.character(rownames(featureTable)),
+    scanIndex  = as.integer(rownames(featureTable)),
+    metaboScape_ID = featureTable$id,
+    adducts = adducts,
+    polarity = as.integer(pol),
+    mz = IRanges::NumericList(mz, compress = FALSE),
+    intensity = IRanges::NumericList(intensity, compress = FALSE)
+  )
 
   spectra_df
 }
@@ -147,7 +149,6 @@ run_analysis <- function(settings_list, sp, add_log){
   # Basic filters and checks
   #-----------------------------------------------------------------------------
 
-  
   #check MS-Level 2 & empty spectra
   keep <- !vapply(peaksData(sp), is.null, logical(1))
   sp <- sp[keep]
@@ -465,7 +466,8 @@ calculate_adjustment_mass <- function(adjustment){
   
   if(!is.null(adjustment) && adjustment != ""){
     adjustment <- str_trim(unlist(strsplit(split = "-", adjustment)))
-    adjustment_masses <- unlist(lapply(adjustment, suppressWarnings(MetaboCoreUtils::calculateMass)))
+    adjustment_masses <- unlist(lapply(adjustment, function(adjustment)
+      {if(adjustment != "")MetaboCoreUtils::calculateMass(adjustment) else 0}))
     adjustmentMass <- ifelse(is.na(adjustment_masses[1]), 0, adjustment_masses[1]) - sum(adjustment_masses[2:length(adjustment_masses)])
   }
   

@@ -142,6 +142,7 @@ app_server <- function(input, output, session) {
     MetaboVersion = "2025b",
     pending_action = NULL
     )
+  MetaboAPI <- reactive({getMetaboScapeConnection(metaboAuth$MetaboVersion)})
   MetaboScapeProjects <- reactiveVal(list())
   MetaboSelectedProjectID <- reactiveVal("")
   MetaboAnnotationData <- reactiveVal(NULL)
@@ -363,18 +364,9 @@ app_server <- function(input, output, session) {
   # Load and Save Project
   #-----------------------------------------------------------------------------
   
-  #Select Directionary
-  roots <- c(
-    home = normalizePath(path.expand("~"), winslash = "/"),
-    mount = "/mnt/ifs/data/Workspace"
-  )
-  shinyDirChoose(input, "out_dir", roots = roots, session = session)
-  shinyDirChoose(input, "load_project", roots = roots, session = session)
-  
-  
   output$export_project <- downloadHandler(
     filename = function() {
-      if(input$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
+      if(state$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
       paste0(state$project_name, ".zip")
     },
     content = function(file) {
@@ -404,15 +396,11 @@ app_server <- function(input, output, session) {
     
     pi <- settings_list$project_info
     state$project_name <- pi$project_name
+    updateTextInput(session = session,"project_name",value = state$project_name)
+    
     state$mode <- pi$mode
     state$out_dir <- pi$out_dir
     state$screen <- pi$screen
-
-    li <- settings_list$LipidIN_settings
-    ToolSettings$LipidIN <- li$active
-    ToolSettings$LipidIN_priority <- li$priority
-    ToolSettings$LipidIN_ppm1 <- li$ppm1
-    ToolSettings$LipidIN_ppm2 <- li$ppm2
     
     dr <- settings_list$DreaMS_settings
     ToolSettings$DreaMS <- dr$active
@@ -581,7 +569,7 @@ app_server <- function(input, output, session) {
     log_state$file <- log_file
     
     
-    if(SelectedProjectID != "") MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
+    if(SelectedProjectID != "") MetaboAPI()
     future({
       
       write_log <- function(msg) {
@@ -599,7 +587,7 @@ app_server <- function(input, output, session) {
           
           if(SelectedProjectID != ""){
             write_log(paste("Loading with MetaboSelectedProjectID", SelectedProjectID))
-            featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
+            featureTable <- createSpectradf(operations = MetaboAPI(), featureTableId = SelectedProjectID )
             spec <- Spectra(featureTable)
           } 
           else if(!is.null(ms2_path)) spec <- load_spectra(ms2_path, add_log = write_log)
@@ -612,7 +600,6 @@ app_server <- function(input, output, session) {
         list(
           spectra = spec,
           results = res,
-          priorities = prio,
           log_file = log_file
         )
         
@@ -631,7 +618,6 @@ app_server <- function(input, output, session) {
       analysis_results$spectra <- .$spectra
       analysis_results$results <- .$results
       analysis_results$running <- FALSE
-      analysis_results$priorities <- .$priorities
       analysis_results$log <- logs
       
     } %...!% {
@@ -676,10 +662,10 @@ app_server <- function(input, output, session) {
   selectProject_from_metaboscape <- function(){
     if(length(MetaboScapeProjects()) == 0){
       
-      MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
+      MetaboScapeAPI <- MetaboAPI()
       res <- MetaboScapeAPI$listAllProjects()
       projects <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
-      
+
       tree <- list()
 
       for (i in seq_len(nrow(projects))) {
@@ -691,11 +677,19 @@ app_server <- function(input, output, session) {
         for (j in seq_len(nrow(exps))) {
           ft <- exps$featureTables[[j]]
 
+          ft_labels <- paste0(
+            ft$name, " (", ft$polarity,
+            if (!is.null(ft$creationDate)) paste0(", ", ft$creationDate) else "", ")"
+          )
+          dup <- duplicated(ft_labels) | duplicated(ft_labels, fromLast = TRUE)
+          ft_labels[dup] <- paste0(ft_labels[dup], " [", ft$id[dup], "]")
+          
           ft_nodes <- setNames(
             lapply(seq_len(nrow(ft)), function(k) {
-              structure("", sticon = "table", stId = ft$id[k], a_attr = list(title = sprintf("Created: %s", ft$creationDate[k])))
+              structure("", sticon = "table", stId = ft$id[k],
+                        a_attr = list(title = sprintf("Created: %s", ft$creationDate[k] %||% "n/a")))
             }),
-            paste0(ft$name, " (", ft$polarity, ", ", ft$creationDate, ")")
+            ft_labels
           )
 
           if(metaboAuth$MetaboVersion == "2025b") exps$description[j] <- ""
@@ -742,6 +736,9 @@ app_server <- function(input, output, session) {
   
   observeEvent(input$Metabo_logout,{
     metaboAuth$authenticated <- FALSE
+    MetaboSelectedProjectID("")
+    MetaboScapeProjects(list())
+    MetaboAnnotationData(NULL)
     metaboAuth$require_auth(function() {
       selectProject_from_metaboscape()   
     })
@@ -749,6 +746,7 @@ app_server <- function(input, output, session) {
   
   observeEvent(input$SelectProject,({
     table <- get_selected(input$metaboProjectTree)
+
     MetaboSelectedProjectID(attr(table[[1]], "stId"))
     removeModal()
     state$newMS2data <- TRUE
@@ -758,7 +756,7 @@ app_server <- function(input, output, session) {
   }))
   
   getMetaboMS1data <- function(){
-    MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
+    MetaboScapeAPI <- MetaboAPI()
     res <- MetaboScapeAPI$retrieveIntensityMatrix(MetaboSelectedProjectID())
     IntensityMatrix <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
     res <- MetaboScapeAPI$listAllSamples(MetaboSelectedProjectID())
@@ -774,7 +772,7 @@ app_server <- function(input, output, session) {
   #
   # @return Returns the MetaboScape FeatureTable with MetaboScape Feature Id, primary annotation and annotation tool.
   getMetaboPrimaryAnnotation <- function(){
-    MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
+    MetaboScapeAPI <- MetaboAPI()
     res <- MetaboScapeAPI$retrieveFeatureTable(featureTableId = MetaboSelectedProjectID())
     featureTable <- fromJSON(httr::content(res, as = "text", encoding = "UTF-8"))
     
@@ -799,7 +797,7 @@ app_server <- function(input, output, session) {
                        a feature table and repeat the analysis.", 
                        duration = 10, type = "warning")
     }else{
-      MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
+      MetaboScapeAPI <- MetaboAPI()
       current <- isolate(checked_features())
       
       true_ids <- names(current)[current]
@@ -1065,7 +1063,7 @@ app_server <- function(input, output, session) {
         state$newMS2data <- FALSE
         }
       else if(SelectedProjectID != ""){
-        MetaboScapeAPI <- getMetaboScapeConnection(metaboAuth$MetaboVersion)
+        MetaboScapeAPI <- MetaboAPI()
         
         featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
         analysis_results$spectra <- Spectra(featureTable)
@@ -1425,14 +1423,16 @@ app_server <- function(input, output, session) {
         value_text <- x
         diff_text <- as.numeric(precursorMz) - as.numeric(x)
       }
-      if(!is.logical(x) && !is.na(x)){
+      if (!is.logical(x) && length(x) > 0 && any(!is.na(x))) {
         sprintf(
           '<span title="Found Values: %s&#10;Difference to precursor: %s">%s</span>',
           value_text,
           diff_text,
           value_text
         )
-      }else ""
+      } else {
+        ""
+      }
 
       },
       character(1)
@@ -1490,6 +1490,12 @@ app_server <- function(input, output, session) {
     df <- rbind(df, row3)    
     df <- t(df)
     
+    prio <- c(analysis_results$res_settings$basicFilters$mz_priority, 
+              analysis_results$res_settings$basicFilters$rt_priority, 
+              analysis_results$res_settings$basicFilters$n_peaks_priority)
+    prio <- c(prio, unlist(lapply(analysis_results$res_settings$specific_filters, function(x){x$rule_priority})))
+    prio <- c(prio, unlist(lapply(analysis_results$res_settings$lipid_definition$chains, function(x){x$priority})))
+    prio <- c(prio, unlist(lapply(analysis_results$res_settings$lipid_definition$validations, function(x){x$val_priority})))
     
     DT::datatable(
       df,
@@ -1533,7 +1539,7 @@ app_server <- function(input, output, session) {
           
           }
           ",
-    jsonlite::toJSON(analysis_results$priorities)
+    jsonlite::toJSON(prio)
             )
           )
         )
@@ -1554,7 +1560,7 @@ app_server <- function(input, output, session) {
     
   })
   
-  mod_spectrum_server(
+  mod_SpectrumVisualization_server(
     "spectrum_plot_mod",
     spectrum_r        = selected_spectrum,
     settings_list_r   = reactive(analysis_results$res_settings),
@@ -1588,16 +1594,43 @@ app_server <- function(input, output, session) {
       pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),spectraVariables(analysis_results$spectra))[1]
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
       
-      if(!is.null(MetaboAnnotationData())){
-        annotationDetails <- MetaboAnnotationData()
-        annotationDetails <- annotationDetails[featureID,]
-      }else{
-        calculated_formulas <- calculateFormulaFromMass(spectrum_info$precursorMz,unlist(spectrum_info[[adduct_col]])[1])
-        
-        annotationDetails <- data.frame(id = featureID, 
-                                        primaryAnnotation.formula = calculated_formulas$formula[1], 
-                                        primaryAnnotation.name = "-", 
-                                        primaryAnnotation.tool = "Decomposed Mass")
+      annotationDetails <- NULL
+      
+      # 1.using MetaboAnnotationData
+      if (!is.null(MetaboAnnotationData())) {
+        tmp <- MetaboAnnotationData()[featureID, , drop = FALSE]
+        if (nrow(tmp) > 0 && !is.na(tmp$primaryAnnotation.formula)) {
+          annotationDetails <- tmp
+        }
+      }
+      
+      # 2. formula from mgf
+      if (is.null(annotationDetails) &&
+          "FORMULA" %in% spectraVariables(spectrum_info)) {
+        annotationDetails <- data.frame(
+          id = featureID,
+          primaryAnnotation.formula = spectrum_info$FORMULA,
+          primaryAnnotation.name = ifelse(
+            "NAME" %in% spectraVariables(spectrum_info),
+            spectrum_info$NAME,
+            "-"
+          ),
+          primaryAnnotation.tool = "MGF"
+        )
+      }
+      
+      # 3. calculate formula
+      if (is.null(annotationDetails)) {
+        calculated_formulas <- calculateFormulaFromMass(
+          spectrum_info$precursorMz,
+          unlist(spectrum_info[[adduct_col]])[1]
+        )
+        annotationDetails <- data.frame(
+          id = featureID,
+          primaryAnnotation.formula = calculated_formulas$formula[1],
+          primaryAnnotation.name = "-",
+          primaryAnnotation.tool = "Decomposed Mass"
+        )
       }
 
       tagList(
@@ -1636,7 +1669,7 @@ app_server <- function(input, output, session) {
           ) 
         ),
         #plotlyOutput("interactive_spectrum"),
-        mod_spectrum_ui("spectrum_plot_mod"),
+        mod_SpectrumVisualization_ui("spectrum_plot_mod"),
         DT::dataTableOutput("filter_results_tableDT"),
         actionButton("set_isotope_sum_Button", "Summarize Peaks"),
         plotOutput("ms1_plot")
@@ -1645,39 +1678,3 @@ app_server <- function(input, output, session) {
 
 }
 
-mod_spectrum_ui <- function(id) {
-  ns <- NS(id)
-  tagList(
-    # shinyWidgets::checkboxGroupButtons() gives the same input as real buttons
-    checkboxGroupInput(ns("overlays"), NULL, inline = TRUE,
-                       choices = c("Neutral losses" = "nl", "Chains" = "chain", "Validations" = "val")),
-    plotly::plotlyOutput(ns("spectrum_plot"))
-  )
-}
-
-mod_spectrum_server <- function(id, spectrum_r, settings_list_r, results_r,
-                                set_isotope_sum_r, ctx_r) {
-  moduleServer(id, function(input, output, session) {
-    ctx <- ctx_r      
-    
-    built <- reactive({
-      req(spectrum_r(), nrow(results_r()) > 0)
-      plottingSpectra(spectrum_r(), set_isotope_sum_r(), settings_list_r(), results_r(),
-                      ctx(), show = isolate(input$overlays))
-    })
-    
-    output$spectrum_plot <- plotly::renderPlotly(built()$fig)
-    
-    proxy <- plotly::plotlyProxy("spectrum_plot", session)
-    
-    observeEvent(input$overlays, ignoreNULL = FALSE, ignoreInit = TRUE, {
-      idx <- built()$idx
-      for (grp in names(idx)) {
-        if (length(idx[[grp]]) == 0) next
-        plotly::plotlyProxyInvoke(proxy, "restyle",
-                                  list(visible = grp %in% input$overlays),
-                                  as.list(idx[[grp]]))
-      }
-    })
-  })
-}
