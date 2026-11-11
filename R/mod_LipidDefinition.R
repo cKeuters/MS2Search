@@ -176,6 +176,12 @@ mod_LipidDefinition_server <- function(id, load_trigger){
     #---- if data was loaded, adds the chains and validations to the UI -----
     observeEvent(load_trigger(), {
       req(load_trigger())
+      
+      for(id in chain_ids()){
+        remove_chain(id)
+      }
+      
+      
       chains_to_load <- load_trigger()$chains
       
       if(!is.null(chains_to_load)){
@@ -206,17 +212,9 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       }
       
       head_group(load_trigger()$head_group)
-      updateTextInput(
-        session = session,
-        "headgroup",
-        value = head_group()
-      )
+      updateTextInput(session = session,"headgroup",value = head_group())
       shorthand(load_trigger()$shorthand)
-      updateTextInput(
-        session = session,
-        "shorthand",
-        value = shorthand()
-      )
+      updateTextInput(session = session,"shorthand",value = shorthand())
     }, ignoreNULL = TRUE, ignoreInit = TRUE)
     
     
@@ -336,8 +334,8 @@ chain_block_ui <- function(id, init_chain) {
 #' @return Returns a list with C_min, C_max, DB_min, DB_max, priority, modifications
 #' 
 #' @noRd 
-chain_block_server <- function(server_id, id, init_chain, on_remove ) {
-  moduleServer(server_id, function(input, output, session) {
+chain_block_server <- function(id, module_id, init_chain, on_remove ) {
+  moduleServer(id, function(input, output, session) {
     ns <- session$ns
 
     # ReactiveValues of the Chain parameters
@@ -360,7 +358,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
       even_steps = init_chain$even_steps,
       DB_min = init_chain$DB_min,
       DB_max = init_chain$DB_max,
-      priority = "basic",
+      priority = init_chain$priority,
       modifications = NULL
     )
     mod_ids <- reactiveVal(1)
@@ -376,7 +374,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
       chain_state$priority <- input$chain_priority
     })
     
-    observeEvent(input$remove_chain, on_remove(id), ignoreInit = TRUE)
+    observeEvent(input$remove_chain, on_remove(module_id), ignoreInit = TRUE)
     
     #--------------------------------------------------------------------------
     # Validating NumericInputs
@@ -434,6 +432,7 @@ chain_block_server <- function(server_id, id, init_chain, on_remove ) {
     
     observeEvent(input$db_max, {
       req(input$db_max)
+      print(input$db_max)
       max_db <- floor(chain_state$C_max / 2)
       v <- min(max(input$db_max, chain_state$DB_min), max_db)
       if (v != input$db_max) updateNumericInput(session, "db_max", value = v)
