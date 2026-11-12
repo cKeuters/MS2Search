@@ -60,6 +60,8 @@ mod_LipidDefinition_ui <- function(id) {
 #' @param load_trigger Holds the chains when new data is loaded.
 #' @param input,output,session Internal parameters for {shiny}.
 #' 
+#' @importFrom shinyvalidate InputValidator sv_regex sv_optional
+#' 
 #' @return Returns a list with a chain list and a validation list.
 #' 
 #' @noRd 
@@ -67,6 +69,11 @@ mod_LipidDefinition_server <- function(id, load_trigger){
   moduleServer(id, function(input, output, session){
     ns <- session$ns
     
+    main_iv <- shinyvalidate::InputValidator$new()
+    main_iv$add_rule("headgroup", shinyvalidate::sv_regex("^$|^[=]?([A-Z][a-z]?\\d*)([=]?[A-Z][a-z]?\\d*)*$",
+                                                          "Invalid formula"))
+    main_iv$enable()
+
     head_group <- reactiveVal("")
     
     observeEvent(input$headgroup, {
@@ -119,7 +126,8 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       )
       
       chain_modules[[cid]] <- chain_block_server(child_id, cid, init_chain, remove_chain) 
-
+      main_iv$add_validator(chain_modules[[cid]]$validator)
+      
     }
 
     
@@ -153,6 +161,8 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       )
       validation_modules[[vid]] <<- validationServer(
         child_id, init_validation, chain_ids, fixed, on_remove = if(!fixed) remove_validation(vid) else NULL)
+      main_iv$add_validator(validation_modules[[vid]]$validator)
+      
       next_validation_id(as.numeric(vid) + 1)
     }
 
@@ -223,16 +233,17 @@ mod_LipidDefinition_server <- function(id, load_trigger){
       chains = ({
         ids <- chain_ids()
         if (length(ids) == 0) return(list())
-        lapply(ids, function(cid) chain_modules[[cid]]())
+        lapply(ids, function(cid) chain_modules[[cid]]$chain_data())
       }),
       validations = ({
         if (length(validation_ids()) == 0) return(list())
         lapply(validation_ids(), function(v){
-          validation_modules[[v]]()
+          validation_modules[[v]]$val_data()
         })
       }),
       head_group = head_group(),
-      shorthand = shorthand()
+      shorthand = shorthand(),
+      is_valid = main_iv$is_valid()
       
     )
     })
@@ -337,7 +348,8 @@ chain_block_ui <- function(id, init_chain) {
 chain_block_server <- function(id, module_id, init_chain, on_remove ) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
-
+    chain_iv <- shinyvalidate::InputValidator$new()
+    
     # ReactiveValues of the Chain parameters
     #
     # @details
@@ -362,8 +374,10 @@ chain_block_server <- function(id, module_id, init_chain, on_remove ) {
       modifications = NULL
     )
     mod_ids <- reactiveVal(1)
+
     
     chain_mz_values <- reactive({
+      req(chain_iv$is_valid())
       calc_lipid_chain_masses(reactiveValuesToList(chain_state))
     })
     
@@ -477,6 +491,18 @@ chain_block_server <- function(id, module_id, init_chain, on_remove ) {
       observeEvent(input[[paste0(mid, "_remove")]], {
         chain_state$modifications[[mid]] <- NULL
         removeUI(selector = paste0("#", ns(paste0("mod_chip_", mid))))
+      }, ignoreInit = TRUE, once = TRUE)
+    }
+    
+    register_mod_validation <- function(mid) {
+      field <- paste0(mid, "_formula")
+      
+      chain_iv$add_rule(field, function(value) {
+        if (is.null(chain_state$modifications[[mid]])) return(NULL)
+        if (length(value) > 0 && !grepl("^(=?[A-Z][a-z]?|\\d)*$", value)) {
+          return("Invalid formula")
+        }        
+        NULL
       })
     }
     
@@ -485,6 +511,7 @@ chain_block_server <- function(id, module_id, init_chain, on_remove ) {
       mid <- paste0("mods_", n_mods)
       target <- paste0("mods_above")
       
+      
       insertUI(
         selector = paste0("#", ns(target)),
         where = "beforeEnd",
@@ -492,6 +519,7 @@ chain_block_server <- function(id, module_id, init_chain, on_remove ) {
       )
 
       register_mod_observers(mid, init_mod)
+      register_mod_validation(mid)
       mod_ids(mod_ids() + 1)
     }
     
@@ -537,8 +565,7 @@ chain_block_server <- function(id, module_id, init_chain, on_remove ) {
         }
     ) 
     
-    #return of the function
-    reactive({
+    chain_data <- reactive({
       list(
         chain_id = chain_state$chain_id,
         C_min = chain_state$C_min,
@@ -551,6 +578,10 @@ chain_block_server <- function(id, module_id, init_chain, on_remove ) {
       )
     })
     
+    list(
+      chain_data = chain_data,
+      validator = chain_iv
+    )
   })
 }
 
@@ -571,7 +602,15 @@ mod_chip_ui <- function(ns, mid, init_mod) {
   div(
     id = ns(paste0("mod_chip_", mid)),
     class = "mod-chip",
-    textInput(ns(paste0(mid, "_formula")), NULL, placeholder = "e.g. OH", value = init_mod$formula,  width = "72px"),
+    div(
+      class = "formula-container",
+      textInput(
+        ns(paste0(mid, "_formula")),
+        NULL,
+        placeholder = "e.g. OH",
+        value = init_mod$formula
+      )
+    ),
     checkboxInput(ns(paste0(mid,"_mod_optional")), "Optional", value = init_mod$optional),
     actionButton(ns(paste0(mid, "_remove")), "\u00d7", class = "btn-remove-mod")
   )
@@ -727,7 +766,16 @@ validationUI <- function(id, validation, fixed = FALSE) {
 validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_remove = NULL) {
   moduleServer(id, function(input, output, session) {
     
+    val_iv <- shinyvalidate::InputValidator$new()
 
+    val_iv$add_rule("adjustment", function(value) {
+        if (is.null(input$adjustment))return(NULL)
+        if (length(value) > 0 && !grepl("^$|^[-=]?([A-Z][a-z]?\\d*)([-=]?[A-Z][a-z]?\\d*)*$", value)) {
+          return("Invalid adjustment")
+        }        
+        NULL
+      })
+    
     ns <- session$ns
     selection_ids  <- reactiveVal(list())
     selection_count <- reactiveVal(0)
@@ -791,12 +839,16 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
     }, ignoreInit = TRUE, once = TRUE)
     
     #Return of the function
-    reactive(list(
+    val_data <- reactive(list(
       name         = input$val_name %||% init_validation$name,
       adjustments  = input$adjustment,
       val_priority = input$val_priority %||% init_validation$val_priority,
       components   = components()
     ))
+    list(
+      val_data = val_data,
+      validator = val_iv
+    )
   })
 }
 

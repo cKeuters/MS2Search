@@ -273,7 +273,8 @@ app_server <- function(input, output, session) {
   observeEvent(input$start_analysis, {
     if(MS2file_name() == ""){
       showNotification("No MS2 data selected", type="warning")
-    }else{
+    }
+    else{
       if(state$project_name == "") state$project_name <- paste0("project_",format(Sys.time(), "%Y-%m-%d_%H-%M-%S"))
       state$screen <- "Analysis"
     }
@@ -290,10 +291,6 @@ app_server <- function(input, output, session) {
   observeEvent(input$back_to_analysis, {
     state$screen <- "Analysis"
   })
-  #Button run Analysis
-  observeEvent(input$run_analysis, {
-     state$screen <- "Results"
-   })
   
  
   output$export_results <- downloadHandler(
@@ -533,9 +530,15 @@ app_server <- function(input, output, session) {
   observeEvent(input$run_analysis, {
     ms2_path <- input$ms2_file$datapath
     SelectedProjectID <- MetaboSelectedProjectID()
+    inputs_valid <- lipid_definition()$is_valid
     
     if(state$newMS2data && is.null(ms2_path) && SelectedProjectID == "") showNotification("No MS2 data selected", type= "error")
+    else if(isFALSE(inputs_valid)){
+      showNotification("Inputs are not valid", type="warning")
+    }
+    
     req(!is.null(ms2_path) || SelectedProjectID != "" || !state$newMS2data)
+    req(isTRUE(inputs_valid))
     
     state$screen <- "Results"
     analysis_results$running <- TRUE

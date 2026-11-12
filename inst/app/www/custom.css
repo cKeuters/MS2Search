@@ -945,13 +945,23 @@ input:checked + .slider:before {
 
 .mod-chip {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;  
   gap: 2px;
   background: #fff;
   border: 1px solid #e0a800;
   border-radius: 8px;
   padding: 4px 4px 4px 8px;
 }
+.mod-chip .shiny-validation-message {
+  min-width: 220px;
+  white-space: normal;
+  font-size: 11px;
+  font-family: "Courier New", monospace;
+}
+.formula-container{
+  width: 72px; 
+}
+
 .mod-chip .form-group {
   margin-bottom: 0;
 }
