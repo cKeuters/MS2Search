@@ -13,7 +13,7 @@
 #' @import shinyTree
 #' @importFrom stats setNames
 #' @importFrom utils write.csv read.csv combn
-#' @importFrom plotly renderPlotly plotlyOutput
+#' @importFrom plotly renderPlotly plotlyOutput add_bars
 #' @noRd
 app_server <- function(input, output, session) {
   
@@ -1049,14 +1049,13 @@ app_server <- function(input, output, session) {
     showModal(modalDialog(
       
       title = "Histogram of MS2 intensities",
-      plotOutput(outputId = "distPlot")
-      
+      plotlyOutput("distPlot")
       
       ,easyClose = TRUE
     ))
   })
   
-  output$distPlot <- renderPlot({
+  output$distPlot <- plotly::renderPlotly({
     ms2_path <- input$ms2_file$datapath
     SelectedProjectID <- MetaboSelectedProjectID()
     
@@ -1066,9 +1065,7 @@ app_server <- function(input, output, session) {
         state$newMS2data <- FALSE
         }
       else if(SelectedProjectID != ""){
-        MetaboScapeAPI <- MetaboAPI()
-        
-        featureTable <- createSpectradf(operations = MetaboScapeAPI, featureTableId = SelectedProjectID )
+        featureTable <- createSpectradf(operations = MetaboAPI(), featureTableId = SelectedProjectID )
         analysis_results$spectra <- Spectra(featureTable)
         state$newMS2data <- FALSE
       } 
@@ -1077,12 +1074,28 @@ app_server <- function(input, output, session) {
         return()
       }
     }
-    hist_data <- data.frame(unlist(peaksData(analysis_results$spectra))[,"intensity"])
-    colnames(hist_data) <- "intensity"
+
+    x <- unlist(peaksData(analysis_results$spectra))[, "intensity"]
+    x <- x[x > 0]
     
-    ggplot(hist_data, aes(intensity)) +
-      geom_histogram() +
-      scale_x_log10()
+    breaks <- 10^seq(
+      log10(min(x)),
+      log10(max(x)),
+      length.out = 100
+    )
+    
+    h <- hist(x, breaks = breaks, plot = FALSE)
+    
+    plot_ly() %>%
+      plotly::add_bars(
+        x = h$mids,
+        y = h$counts,
+        width = diff(h$breaks)
+      ) %>%
+      layout(
+        xaxis = list(type = "log", tickformat="~g")
+      )    
+
   })
   
   
