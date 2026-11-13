@@ -160,7 +160,7 @@ mod_LipidDefinition_server <- function(id, load_trigger){
         immediate = TRUE
       )
       validation_modules[[vid]] <<- validationServer(
-        child_id, init_validation, chain_ids, fixed, on_remove = if(!fixed) remove_validation(vid) else NULL)
+        child_id, init_validation, chain_ids, fixed, on_remove = remove_validation(vid))
       main_iv$add_validator(validation_modules[[vid]]$validator)
       
       next_validation_id(as.numeric(vid) + 1)
@@ -801,7 +801,11 @@ validationServer <- function(id, init_validation, chain_ids, fixed = FALSE, on_r
     }
     isolate(for (com in init_validation$components) add_component_to_ui(com))
     
-      # keep the choices in sync when chains are added/removed
+    observeEvent(input$add_component,{
+      add_component_to_ui()
+    })
+    
+    # keep the choices in sync when chains are added/removed
     observeEvent(chain_ids(), {
       
       req(length(selection_ids()) > 0)

@@ -52,12 +52,19 @@ app_ui <- function(request) {
                             actionButton("run_analysis", "Run Analysis",
                                          class = "btn-primary btn-lg start-btn"),
                             div(
-                              downloadButton("export_brkrrba", "Export brkrrba",
-                                             class = "btn-primary btn-lg start-btn"),
-                              div(
-                                style = "position:absolute; top:100%; left:0; width:100%; text-align:center;",
-                                textOutput("saved_brkrrba")
-                              )
+                              tags$span(
+                                id = "download_wrapper",
+                                style = "display: inline-block;",
+                                title = "No data available yet. Please load data first.",
+                                shinyjs::disabled(
+                                  downloadButton("export_brkrrba", "Export brkrrba",
+                                                 class = "btn-primary btn-lg start-btn")
+                                )
+                              ),
+                              tags$head(tags$style(HTML("
+                              #download_wrapper .disabled,
+                              #download_wrapper [disabled] { pointer-events: none; }
+                            ")))
                             )
                           )
                         )

@@ -41,7 +41,6 @@ app_server <- function(input, output, session) {
     project_name = "",
     newMS2data = TRUE
   )
-  
   # Values of Basisfilters
   #
   # Contains the initial and reactive values for the basisfilters of
@@ -132,8 +131,6 @@ app_server <- function(input, output, session) {
   log_state <- reactiveValues(file = NULL)
   log_text <- reactiveVal("")
   
-  brkrrba_save <- reactiveVal("")
-
   ms1_data <- reactiveVal(NULL)
   
   #MetaboScape Authentification and Projects, Versions: "2025b" or "2026b"
@@ -317,6 +314,20 @@ app_server <- function(input, output, session) {
     }
   )
   
+  observe({
+    ld <- lipid_definition()
+    data_available <- length(ld$chains) > 0 &&
+      "precursor validation" %in% unlist(lapply(ld$validations, function(x) x$name))
+    
+    if (data_available) {
+      shinyjs::enable("export_brkrrba")
+      shinyjs::runjs("$('#download_wrapper').attr('title', 'Click to download MetaboScape brkrrba-file');")
+    } else {
+      shinyjs::disable("export_brkrrba")
+      shinyjs::runjs("$('#download_wrapper').attr('title', 'Disabled: Chains or precursor validation missing.');")
+    }
+  })
+  
   output$export_brkrrba <- downloadHandler(
     filename = function() {
       paste0(state$project_name, ".brkrrba")
@@ -329,8 +340,10 @@ app_server <- function(input, output, session) {
         toolSettings = reactiveValuesToList(ToolSettings),
         cards   = all_cards_data(), 
         lipid_definition = lipid_definition())
+      
       create_brkrrba_file(settings_list, file)
-    }
+    },
+    contentType = "text/brkrrba"
   )
   
   #About Page
@@ -571,8 +584,7 @@ app_server <- function(input, output, session) {
     writeLines("", log_file)
     log_state$file <- log_file
     
-    
-    if(SelectedProjectID != "") MetaboAPI()
+
     future({
       
       write_log <- function(msg) {
@@ -913,9 +925,6 @@ app_server <- function(input, output, session) {
   # Analysis Screen
   #-----------------------------------------------------------------------------
   
-  output$saved_brkrrba <- renderText({
-    brkrrba_save()
-  })
   
   output$analysis_ui <- renderUI({ 
     

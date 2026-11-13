@@ -1279,7 +1279,7 @@ input:checked + .slider:before {
   min-height: var(--val-h);
   display: flex;
   align-items: center;
-  padding: 0 22px 0 4px !important;   /* space on the right for the arrow */
+  padding: 0 42px 0 4px !important;   /* space on the right for the arrow */
   border: none;
   box-shadow: none;
   background: transparent;
