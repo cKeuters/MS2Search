@@ -39,7 +39,8 @@ app_server <- function(input, output, session) {
     screen = "Setup",
     mode = "pos",
     project_name = "",
-    newMS2data = TRUE
+    newMS2data = TRUE,
+    score_threshold = 0.5
   )
   # Values of Basisfilters
   #
@@ -145,10 +146,12 @@ app_server <- function(input, output, session) {
   MetaboAnnotationData <- reactiveVal(NULL)
   
   MS2file_name <- reactiveVal("")
+  ms2_file_path <- reactive(input$ms2_file$datapath)
   
   checked_features <- reactiveVal(NULL) 
-  score_threshold <- reactiveVal(0.5)
   
+  #mod_DreaMS_Network_server("mod_DreaMS_Network", ms2_file_path)
+
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
   #-----------------------------------------------------------------------------
@@ -409,8 +412,9 @@ app_server <- function(input, output, session) {
     updateTextInput(session = session,"project_name",value = state$project_name)
     
     state$mode <- pi$mode
-    state$out_dir <- pi$out_dir
     state$screen <- pi$screen
+    state$score_threshold <- as.numeric(pi$score_threshold)
+    
     
     dr <- settings_list$DreaMS_settings
     ToolSettings$DreaMS <- dr$active
@@ -544,7 +548,7 @@ app_server <- function(input, output, session) {
     ms2_path <- input$ms2_file$datapath
     SelectedProjectID <- MetaboSelectedProjectID()
     inputs_valid <- lipid_definition()$is_valid
-    
+
     if(state$newMS2data && is.null(ms2_path) && SelectedProjectID == "") showNotification("No MS2 data selected", type= "error")
     else if(isFALSE(inputs_valid)){
       showNotification("Inputs are not valid", type="warning")
@@ -584,7 +588,7 @@ app_server <- function(input, output, session) {
     writeLines("", log_file)
     log_state$file <- log_file
     
-
+    print("Start running Analysis")
     future({
       
       write_log <- function(msg) {
@@ -1148,7 +1152,7 @@ app_server <- function(input, output, session) {
             numericInput(
               "score_threshold",
               NULL,
-              value = score_threshold(),
+              value = state$score_threshold,
               min = 0,
               max = 1,
               step = 0.1
@@ -1167,7 +1171,7 @@ app_server <- function(input, output, session) {
             class = "toolbar-btn"
           )
         ),
-        
+        #div(mod_DreaMS_Network_ui("mod_DreaMS_Network")),
         div(
           class = "toolbar-right",
           
@@ -1248,11 +1252,11 @@ app_server <- function(input, output, session) {
   
 
   observeEvent(analysis_results$results, {
-    checked_features(setNames(filtered_results()$score > score_threshold(), as.character(filtered_results()$FEATURE_ID)))
+    checked_features(setNames(filtered_results()$score > state$score_threshold, as.character(filtered_results()$FEATURE_ID)))
   }, ignoreNULL = TRUE)
   
   observeEvent(input$score_threshold, {
-    score_threshold(input$score_threshold)
+    state$score_threshold <- input$score_threshold
   })
   
   # Table data without the checkbox column, shared by render + proxy update
@@ -1310,7 +1314,7 @@ app_server <- function(input, output, session) {
   # Threshold button: update the state AND refresh the table contents
   observeEvent(input$set_score_threshold, {
     res <- filtered_results()
-    new_state <- setNames(res$score > score_threshold(), as.character(res$FEATURE_ID))
+    new_state <- setNames(res$score > state$score_threshold, as.character(res$FEATURE_ID))
     checked_features(new_state)
     
     DT::replaceData(

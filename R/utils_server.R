@@ -23,8 +23,8 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
       project_name = state$project_name,
       date = as.character(Sys.Date()),
       mode = state$mode,
-      out_dir = state$out_dir,
-      screen = state$screen
+      screen = state$screen,
+      score_threshold = state$score_threshold
     ),
     DreaMS_settings = list(
       active = toolSettings$DreaMS,

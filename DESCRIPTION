@@ -1,6 +1,6 @@
 Package: MS2Search
 Title: Searching for specific fragmentation pattern in MS2 data
-Version: 0.0.1.10
+Version: 0.1.0
 Authors@R: 
     person("Carina", "Keuters", , "ckeuters@ipb-halle.de", role = c("aut", "cre"))
 Description: Rule based search in MS2 data with different approuches. A
@@ -12,6 +12,7 @@ Depends:
     R (>= 4.1.0)
 Imports: 
     config,
+    curl,
     data.table,
     dplyr,
     DT,
@@ -21,10 +22,13 @@ Imports:
     golem,
     grDevices,
     httr,
+    httr2,
+    IRanges,
     jsonlite,
     MetaboCoreUtils,
     MsBackendMgf,
     MsCoreUtils,
+    parallelly,
     plotly,
     promises,
     purrr,
@@ -36,6 +40,7 @@ Imports:
     shinyFiles,
     shinyjs,
     shinyTree,
+    shinyvalidate,
     shinyWidgets,
     sodium,
     Spectra,

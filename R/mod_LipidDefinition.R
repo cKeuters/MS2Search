@@ -232,11 +232,11 @@ mod_LipidDefinition_server <- function(id, load_trigger){
     reactive({list(
       chains = ({
         ids <- chain_ids()
-        if (length(ids) == 0) return(list())
+        if (length(ids) == 0) list()
         lapply(ids, function(cid) chain_modules[[cid]]$chain_data())
       }),
       validations = ({
-        if (length(validation_ids()) == 0) return(list())
+        if (length(validation_ids()) == 0) list()
         lapply(validation_ids(), function(v){
           validation_modules[[v]]$val_data()
         })
