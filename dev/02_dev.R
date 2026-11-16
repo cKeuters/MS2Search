@@ -25,6 +25,7 @@ golem::add_module(name = "LipidDefinition", with_test = TRUE) # Name of the modu
 golem::add_module(name = "MetaboScape_auth", with_test = TRUE) # Name of the module
 golem::add_module(name = "About", with_test = FALSE) # Name of the module
 golem::add_module(name = "SpectrumVisualization", with_test = TRUE) # Name of the module
+golem::add_module(name = "DreaMS_Network", with_test = TRUE) # Name of the module
 
 ## Add helper functions ----
 ## Creates fct_* and utils_*

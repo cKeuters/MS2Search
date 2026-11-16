@@ -1,4 +1,0 @@
-# use cd to moove to the folder containing the Dockerfile
-docker build -f Dockerfile --progress=plain -t ms2search:latest .
-docker run -p 80:80 ms2search:latest
-# then go to 127.0.0.1:80

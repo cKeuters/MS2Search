@@ -1,0 +1,19 @@
+services:
+  dreams:
+    build: ./dreams-service
+    restart: unless-stopped
+    volumes:
+      - dreams-cache:/root/.cache   
+
+  ms2search:
+    build: .  
+    restart: unless-stopped
+    ports:
+      - "80:80"  
+    environment:
+      - DREAMS_URL=http://dreams:8000
+    depends_on:
+      - dreams
+
+volumes:
+  dreams-cache:
