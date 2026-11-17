@@ -150,7 +150,7 @@ app_server <- function(input, output, session) {
   
   checked_features <- reactiveVal(NULL) 
   
-  #mod_DreaMS_Network_server("mod_DreaMS_Network", ms2_file_path)
+  mod_DreaMS_Network_server("mod_DreaMS_Network", ms2_file_path)
 
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -1171,7 +1171,7 @@ app_server <- function(input, output, session) {
             class = "toolbar-btn"
           )
         ),
-        #div(mod_DreaMS_Network_ui("mod_DreaMS_Network")),
+        div(mod_DreaMS_Network_ui("mod_DreaMS_Network")),
         div(
           class = "toolbar-right",
           

@@ -5,6 +5,7 @@ from fastapi.responses import Response
 from dreams.api import dreams_embeddings
 
 app = FastAPI()
+CKPT = os.environ["DREAMS_CKPT"]
 
 @app.get("/health")
 def health():
@@ -15,7 +16,7 @@ async def embed(file: UploadFile):
     with tempfile.NamedTemporaryFile(suffix=".mgf") as tmp:
         tmp.write(await file.read())
         tmp.flush()
-        embs = dreams_embeddings(tmp.name)    
+        embs =  dreams_embeddings(tmp.name, model_ckpt=CKPT)
     arr = np.asarray(embs, dtype="float32")
     return Response(
         content=arr.tobytes(),
