@@ -2,10 +2,14 @@ services:
   dreams:
     build: ./dreams-service
     restart: unless-stopped
+    cpus: 3
+    mem_limit: 8g
     
   ms2search:
     build: .  
     restart: unless-stopped
+    cpus: 3
+    mem_limit: 8g
     ports:
       - "80:80"  
     environment:
