@@ -4,16 +4,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libxrender1 libxext6 libsm6 libx11-6 libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
 
-RUN curl -L -o /opt/embedding_model.ckpt \
-  "https://zenodo.org/records/10997887/files/embedding_model.ckpt?download=1" \
-&& echo "4f6913c242b219b75e667dd1ed5add59  /opt/embedding_model.ckpt" | md5sum -c -
+ RUN mkdir -p /opt/models \
+ && curl -L -o /opt/models/ssl_model.ckpt \
+      "https://zenodo.org/records/10997887/files/ssl_model.ckpt?download=1" \
+ && echo "4deee91dd4486c2b6cbcde1f200b8f50  /opt/models/ssl_model.ckpt" | md5sum -c -
+
+RUN curl -L -o /opt/models/embedding_model.ckpt \
+      "https://zenodo.org/records/10997887/files/embedding_model.ckpt?download=1" \
+ && echo "4f6913c242b219b75e667dd1ed5add59  /opt/models/embedding_model.ckpt" | md5sum -c -
 
 RUN pip install --no-cache-dir torch==2.2.1 --index-url https://download.pytorch.org/whl/cpu
 RUN git clone https://github.com/pluskal-lab/DreaMS.git /opt/DreaMS \
  && pip install --no-cache-dir -e /opt/DreaMS \
  && pip install --no-cache-dir fastapi uvicorn python-multipart
 
-ENV DREAMS_CKPT=/opt/embedding_model.ckpt
+RUN mkdir -p /opt/DreaMS/dreams/models/pretrained \
+ && mv /opt/models/*.ckpt /opt/DreaMS/dreams/models/pretrained/
 
 COPY app.py /srv/app.py
 WORKDIR /srv

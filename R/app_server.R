@@ -589,6 +589,9 @@ app_server <- function(input, output, session) {
     log_state$file <- log_file
     
     print("Start running Analysis")
+    MetaboAPI <- MetaboAPI()
+    newMS2data <- state$newMS2data
+    old_spectra <- analysis_results$spectra
     future({
       
       write_log <- function(msg) {
@@ -602,17 +605,17 @@ app_server <- function(input, output, session) {
       
       tryCatch({
         
-        if(state$newMS2data){
+        if(newMS2data){
           
           if(SelectedProjectID != ""){
             write_log(paste("Loading with MetaboSelectedProjectID", SelectedProjectID))
-            featureTable <- createSpectradf(operations = MetaboAPI(), featureTableId = SelectedProjectID )
+            featureTable <- createSpectradf(operations = MetaboAPI, featureTableId = SelectedProjectID )
             spec <- Spectra(featureTable)
           } 
           else if(!is.null(ms2_path)) spec <- load_spectra(ms2_path, add_log = write_log)
           else write_log("NO MS2")
         }
-        else spec <- analysis_results$spectra
+        else spec <- old_spectra
 
         res <- run_analysis(settings, spec, add_log = write_log)
         

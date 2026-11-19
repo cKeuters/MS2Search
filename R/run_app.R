@@ -21,8 +21,8 @@ run_app <- function(
   #cores for Parallelity 
   n_cores   <- parallelly::availableCores()
   print(paste("Available cores:", n_cores))
-  # n_workers <- max(2, min(n_cores - 1, 4))  # leave one core for Shiny, cap at 4
-  # future::plan(future::multisession, workers = n_workers)
+  n_workers <- max(2, min(n_cores - 1, 4))  # leave one core for Shiny, cap at 4
+  future::plan(future::multisession, workers = n_workers)
   
 	golem::with_golem_options(
 		app = shinyApp(
