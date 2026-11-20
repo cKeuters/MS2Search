@@ -80,16 +80,29 @@ app_ui <- function(request) {
                 fluidRow(
                   column(
                     width = 6,
-                    tags$details(
-                      tags$summary(
-                        class = "validation-summary",
-                        icon("filter"), "Filtering Table for Filters"
+                    tabsetPanel(
+                      tabPanel(
+                        "Feature Table",
+                        div(
+                          tags$details(
+                            tags$summary(
+                              class = "validation-summary",
+                              icon("filter"), "Filtering Table for Filters"
+                            ),
+                            checkboxGroupInput("filter_select",
+                                               "Select Filters that have to be passed:",
+                                               choices = NULL)
+                          ),
+                          #DT::dataTableOutput("featureTable")
+                          uiOutput("featureTableUI")
+                          
+                        )
                       ),
-                      checkboxGroupInput("filter_select",
-                                         "Select Filters that have to be passed:",
-                                         choices = NULL)
+                      tabPanel(
+                        "Network",
+                        mod_DreaMS_Network_ui("mod_DreaMS_Network")
+                      )
                     ),
-                    DT::dataTableOutput("featureTable")
                   ),
                   column(
                     width = 6,

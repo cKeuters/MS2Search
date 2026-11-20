@@ -9,18 +9,80 @@
 #' @importFrom shiny NS tagList 
 mod_DreaMS_Network_ui <- function(id) {
   ns <- NS(id)
+  
   tagList(
-    actionButton(ns("getEmbeddings"), "get Embeddings"),
-    textOutput(ns("dreams_online")),
-    textOutput(ns("dreams_status"))
- 
+    
+    fluidRow(
+      column(
+        width = 12,
+        div(
+          class = "dreams-status-bar",
+          uiOutput(ns("dreams_online")),
+          textOutput(ns("dreams_online_msg")),
+          span(
+            class = "dreams-status-text",
+            textOutput(ns("dreams_status"), inline = TRUE)
+          )
+        )
+      )
+    ),
+    # Button zentriert solange kein UMAP vorhanden
+    conditionalPanel(
+      condition = sprintf("!output['%s']", ns("has_umap")),
+      ns = ns,
+      div(
+        style = "text-align:center; margin-top:150px;",
+        actionButton(ns("getEmbeddings"), "Get Embeddings", class = "dreams-btn")
+      )
+    ),
+    
+    # Alles nur sichtbar wenn UMAP existiert
+    conditionalPanel(
+      condition = paste0("output.", ns("has_umap")),
+      ns = ns,
+      
+      div(
+        class = "dreams-controls",
+        radioButtons(
+          ns("color_mode"),
+          "Colour by",
+          choices = c(
+            "Spectra only" = "none",
+            "Score" = "score",
+            "Filter" = "filter"
+          ),
+          inline = TRUE
+        )
+      ),
+      
+      conditionalPanel(
+        condition = "input.color_mode == 'filter'",
+        ns = ns,
+        selectInput(
+          ns("filters"),
+          "Filters",
+          choices = NULL,
+          multiple = TRUE
+        )
+      ),
+      
+      plotly::plotlyOutput(ns("umap"), height = "600px"),
+      
+      div(
+        style = "margin-top:15px;",
+        actionButton(ns("getEmbeddings"), "Get Embeddings", class = "dreams-btn")
+      )
+    )
   )
 }
     
 #' DreaMS_Network Server Functions
 #'
+#' @importFrom plotly add_markers layout event_register event_data
+#' @importFrom uwot umap 
+#'
 #' @noRd 
-mod_DreaMS_Network_server <- function(id, ms2_file_path){
+mod_DreaMS_Network_server <- function(id, ms2_file_path_r, selected_feature_id_r, results_r){
   moduleServer(id, function(input, output, session){
     ns <- session$ns
 
@@ -31,14 +93,14 @@ mod_DreaMS_Network_server <- function(id, ms2_file_path){
     fails       <- reactiveVal(0)
 
     dreams_up <- reactive({ invalidateLater(15000, session); dreams_available() })
-    output$dreams_online <- renderText(if (dreams_up()) "DreaMS: available" else "DreaMS: not reachable")
+    output$dreams_online_msg <- renderText(if (dreams_up()) "DreaMS: available" else "DreaMS: not reachable")
 
     observeEvent(input$getEmbeddings, {
       if (!dreams_available()) {
         showNotification("DreaMS server is not reachable right now. Please try again later.", type = "error")
         return()
       }
-      id <- tryCatch(dreams_submit(ms2_file_path()), 
+      id <- tryCatch(dreams_submit(ms2_file_path_r()), 
                     error = function(e) {
                       showNotification(paste("Could not start DreaMS job:", conditionMessage(e)), type = "error")
                       NULL
@@ -91,9 +153,120 @@ mod_DreaMS_Network_server <- function(id, ms2_file_path){
         ""
       )
     })
+    
+    has_umap <- reactive({
+      !is.null(embeddings()) &&
+        nrow(embeddings()) > 0
+    })
+    
+    output$has_umap <- reactive({has_umap()})
+    outputOptions(output, "has_umap", suspendWhenHidden = FALSE)
+
+    output$dreams_online <- renderUI({
+      
+      online <- dreams_up()
+      cls <- if (online)"dreams-dot dreams-online"
+      else "dreams-dot dreams-offline"
+      
+      txt <- if (online)"DreaMS: online"
+      else "DreaMS: offline"
+      
+      tags$span(
+        class = cls,
+        title = txt
+      )
+    })
+    
+    #---------------------------------------------------------------------------
+    # Visualization of DreaMS
+    #---------------------------------------------------------------------------
+    
+    # data for the plot
+    plot_df <- reactive({
+      req(embeddings())
+      
+      coords <- uwot::umap(
+        embeddings(),
+        n_neighbors = 15,
+        min_dist    = 0.1,
+        metric      = "cosine",
+        n_threads   = 4
+      )
+      embed_df <- data.frame(id = embeddings()$id, x = coords[, 1], y = coords[, 2])
+      
+      df <- dplyr::left_join(
+        embed_df,
+        dplyr::select(results_r(), id = FEATURE_ID, score),
+        by = "id"
+      )
+      
+      df
+    })
+    
+    output$umap <- plotly::renderPlotly({
+      req(plot_df())
+      
+      df <- plot_df()
+      df$hover <- paste0(df$id, if ("score" %in% names(df)) paste0("<br>Score: ", round(df$score, 3)) else "")
+      
+      p <- switch(
+        input$color_mode,
+        none = plotly::plot_ly(
+          df, x = ~x, y = ~y, key = ~id, text = ~hover, hoverinfo = "text",
+          source = "umap", type = "scattergl", mode = "markers",
+          marker = list(color = "grey60", size = 6, opacity = 0.7)
+        ),
+        score = plotly::plot_ly(
+          df, x = ~x, y = ~y, key = ~id, text = ~hover, hoverinfo = "text",
+          source = "umap", type = "scattergl", mode = "markers",
+          color = ~score, colors = "viridis",
+          marker = list(size = 6, opacity = 0.8)
+        ),
+        filter = {
+            # no filter chosen yet -> neutral
+            plotly::plot_ly(df, x = ~x, y = ~y, key = ~id, text = ~hover,
+                            hoverinfo = "text", source = "umap",
+                            type = "scattergl", mode = "markers",
+                            marker = list(color = "grey60", size = 6))
+        }
+      )
+      
+      # highlight the currently selected spectrum
+      sel <- selected_feature_id_r()
+      if (!is.null(sel) && sel %in% df$id) {
+        s <- df[df$id == sel, ]
+        p <- plotly::add_markers(
+          p, data = s, x = ~x, y = ~y, key = NULL, inherit = FALSE,
+          showlegend = FALSE, hoverinfo = "skip",
+          marker = list(size = 14, color = "rgba(0,0,0,0)",
+                        line = list(color = "black", width = 2))
+        )
+      }
+      
+      p |>
+        plotly::layout(
+          xaxis = list(title = "UMAP 1", zeroline = FALSE),
+          yaxis = list(title = "UMAP 2", zeroline = FALSE),
+          uirevision = "keep"   # keeps zoom/pan when colour mode or selection changes
+        ) |>
+        plotly::event_register("plotly_click")
+      
+      
+      # click on a dot -> set selection
+      observeEvent(plotly::event_data("plotly_click", source = "umap"), {
+        ed <- plotly::event_data("plotly_click", source = "umap")
+        if (!is.null(ed$key)) selected_feature_id_r(ed$key[[1]])
+      })
+    })
+    
+  
+    
   })
 }
-    
+
+#-------------------------------------------------------------------------------
+# DreaMS Container communication
+#-------------------------------------------------------------------------------
 
 dreams_req <- function(path, timeout = 5) {
   httr2::request(Sys.getenv("DREAMS_URL", "http://localhost:8000")) |>

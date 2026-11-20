@@ -12,7 +12,7 @@
 #'
 #' @return Returns a spectra object.
 #'
-#' @importFrom Spectra Spectra 
+#' @importFrom Spectra Spectra spectraData
 #' @importFrom MsBackendMgf MsBackendMgf
 #' @noRd
 load_spectra <- function(ms2_file, add_log = NULL){
@@ -24,13 +24,13 @@ load_spectra <- function(ms2_file, add_log = NULL){
   sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
   sp <- getRT(sp)
   
-  FEATURE_ID <- spectraData(sp)$FEATURE_ID
+  FEATURE_ID <- Spectra::spectraData(sp)$FEATURE_ID
   if(length(FEATURE_ID) != length(unique(FEATURE_ID))){
-    n_peaks <- lengths(peaksData(sp))
+    n_peaks <- lengths(Spectra::peaksData(sp))
     
     key <- paste(
-      sprintf("%.5f", spectraData(sp)$precursorMz),
-      sprintf("%.2f", spectraData(sp)$rtime),
+      sprintf("%.5f", Spectra::spectraData(sp)$precursorMz),
+      sprintf("%.2f", Spectra::spectraData(sp)$rtime),
       n_peaks,
       sep = "|"
     )
@@ -150,22 +150,22 @@ run_analysis <- function(settings_list, sp, add_log){
   #-----------------------------------------------------------------------------
 
   #check MS-Level 2 & empty spectra
-  keep <- !vapply(peaksData(sp), is.null, logical(1))
+  keep <- !vapply(Spectra::peaksData(sp), is.null, logical(1))
   sp <- sp[keep]
   sp <- sp |>
-    filterMsLevel(2) |>
-    filterEmptySpectra() 
+    Spectra::filterMsLevel(2) |>
+    Spectra::filterEmptySpectra() 
   add_log(paste("Non-empty spectra with MS-level 2: ", length(sp)))
   
-  results <- data.frame(FEATURE_ID = spectraData(sp)$FEATURE_ID)
+  results <- data.frame(FEATURE_ID = Spectra::spectraData(sp)$FEATURE_ID)
   if(length(results$FEATURE_ID) != length(unique(results$FEATURE_ID))){
-    results$FEATURE_ID <- spectraData(sp)$FEATURE_KEY
+    results$FEATURE_ID <- Spectra::spectraData(sp)$FEATURE_KEY
   }
   
-  if("metaboScape_ID" %in% spectraVariables(sp)) results$metaboScape_ID <- spectraData(sp)$metaboScape_ID
+  if("metaboScape_ID" %in% Spectra::spectraVariables(sp)) results$metaboScape_ID <- Spectra::spectraData(sp)$metaboScape_ID
 
   #check mode
-  pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),spectraVariables(sp))[1]
+  pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),Spectra::spectraVariables(sp))[1]
   if(settings_list$project_info$mode == "pos") mode <- c("POS","Positive", "POSITIVE", "positive", 1) else mode <- c("NEG", "NEGATIVE", "negative", 0)
 
   if (length(pol_col) > 0) {
@@ -176,7 +176,7 @@ run_analysis <- function(settings_list, sp, add_log){
   add_log(paste0("Spectra in positive mode: ", length(sp)))
   
   #check mz
-    all_mz <- precursorMz(sp)
+    all_mz <- Spectra::precursorMz(sp)
     retained_vector <- all_mz >= settings_list$basicFilters$mz_min & all_mz <= settings_list$basicFilters$mz_max
     retained_vector[is.na(retained_vector)] <- FALSE
     add_log(paste0("Spectra in mz-Range (", settings_list$basicFilters$mz_min,", ", settings_list$basicFilters$mz_max, "): ", sum(retained_vector)))
@@ -188,7 +188,7 @@ run_analysis <- function(settings_list, sp, add_log){
     }
 
   #check RT
-    all_RT <- rtime(sp)
+    all_RT <- Spectra::rtime(sp)
     retained_vector <- all_RT >= settings_list$basicFilters$rt_min & all_RT <= settings_list$basicFilters$rt_max
     retained_vector[is.na(retained_vector)] <- FALSE
     add_log(paste0("Spectra in RT-Range (", settings_list$basicFilters$rt_min,", ", settings_list$basicFilters$rt_max, "): ", sum(retained_vector)))
@@ -221,8 +221,8 @@ run_analysis <- function(settings_list, sp, add_log){
 
   for(rule in settings_list$specific_filters){
     
-    if(!rule$filter_noise)  {peaks_data <- peaksData(sp)
-    }else  peaks_data <- peaksData(sp_cleaned)
+    if(!rule$filter_noise)  {peaks_data <- Spectra::peaksData(sp)
+    }else  peaks_data <- Spectra::peaksData(sp_cleaned)
     
     masses <- vapply(rule$entries, function(e) {
       resolve_mass(list(input_type = rule$input_type, value = e$value, is_mzPeak = rule$is_mzPeak),settings_list$project_info$mode)
@@ -288,7 +288,7 @@ run_analysis <- function(settings_list, sp, add_log){
     #-----------------------------------------------------------------------------
     # Chain filters
     #-----------------------------------------------------------------------------
-    peaks_data <- peaksData(sp_cleaned)
+    peaks_data <- Spectra::peaksData(sp_cleaned)
 
     chain_id <- 1
     for(ld in settings_list$lipid_definition$chains){
@@ -310,7 +310,7 @@ run_analysis <- function(settings_list, sp, add_log){
         results <- results[retained_vector,]
         sp <- sp[retained_vector,]
         sp_cleaned <- sp_cleaned[retained_vector,]
-        peaks_data <- peaksData(sp_cleaned)
+        peaks_data <- Spectra::peaksData(sp_cleaned)
       }
       
     }
@@ -418,13 +418,13 @@ run_analysis <- function(settings_list, sp, add_log){
 #' @return Returns a Spectra object containing the ms2 spectra information including
 #' retentiontime as rtime.
 #' 
-#' @importFrom Spectra spectraVariables
+#' @importFrom Spectra spectraVariables rtime
 #'
 #' @noRd
 getRT <- function(sp){
-  if (all(is.na(rtime(sp)))) {
+  if (all(is.na(Spectra::rtime(sp)))) {
     
-    vars <- spectraVariables(sp)
+    vars <- Spectra::spectraVariables(sp)
     
     rt_map <- c(
       RTINSECONDS  = "seconds",
@@ -537,7 +537,7 @@ find_neutralLosses <- function(peaks, precursor = NULL, values, losses_min = 1,
     cand$target <- mz[cand$anchor] - cand$offset_new
     cand <- cand[order(cand$target), ]
 
-    idx <- closest(cand$target, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
+    idx <- MsCoreUtils::closest(cand$target, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
     
     cand <- cand[!is.na(idx), ]
     if (nrow(cand) == 0) break
@@ -557,7 +557,7 @@ findMZpeak <- function(peaks, values, tol_ppm, tol_mz){
   mz <- peaks[,"mz"]
   values <- sort(as.numeric(values))
   
-  idx <- closest(values, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
+  idx <- MsCoreUtils::closest(values, mz, tolerance = tol_mz, ppm = tol_ppm, duplicates = "closest")
   res <- mz[idx]
   if(all(is.na(res))) NA
   else res[!is.na(res)]
@@ -588,17 +588,17 @@ cleaning_ref<- function(ms2, basicFilterValues){
   sps_filtered <- switch(
     basicFilterValues$noiseFiltering_method,
     
-    "MAD" = addProcessing(ms2, function(x, spectrumMsLevel) {
+    "MAD" = Spectra::addProcessing(ms2, function(x, spectrumMsLevel) {
       n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "MAD")
       x[x[, "intensity"] > 3 * n, , drop = FALSE]
     }),
     
-    "SuperSmoother" = addProcessing(ms2, function(x, spectrumMsLevel) {
+    "SuperSmoother" = Spectra::addProcessing(ms2, function(x, spectrumMsLevel) {
       n <- MsCoreUtils::noise(x[, "mz"], x[, "intensity"], method = "SuperSmoother")
       x[x[, "intensity"] > 3 * n, , drop = FALSE]
     }),
     
-    "wma" = addProcessing(ms2, function(x, spectrumMsLevel) {
+    "wma" = Spectra::addProcessing(ms2, function(x, spectrumMsLevel) {
       if (nrow(x) < 3) return(x)
       x[, 2] <- MsCoreUtils::smooth(x[, 2], cf = MsCoreUtils::coefWMA(hws = 1))
       return(x)
@@ -610,12 +610,12 @@ cleaning_ref<- function(ms2, basicFilterValues){
   )
 
   if(basicFilterValues$min_filtering_type == "fixed"){
-    sps_filtered <- filterIntensity(
+    sps_filtered <- Spectra::filterIntensity(
       sps_filtered, intensity = basicFilterValues$fixed_threshold 
     )
   }
   else if(basicFilterValues$min_filtering_type == "percent"){
-    sps_filtered <- filterIntensity(sps_filtered, intensity = function(x, ...) x > max(x, na.rm = TRUE) * 0.01)
+    sps_filtered <- Spectra::filterIntensity(sps_filtered, intensity = function(x, ...) x > max(x, na.rm = TRUE) * 0.01)
   }
   
   return(sps_filtered)
@@ -743,3 +743,67 @@ calc_lipid_chain_masses <- function(chains){
   else combos[c("formula", "optional_mod", "mass")]
 }
 
+#' @title Resolve metabolite name masses 
+#'
+#' @description Calculates the mass of metabolite names
+#' 
+#' @details
+#' Uses the dataframe METABOLITES to get the mass from a neutral loss or the 
+#' mz peak of the chosen entries.
+#' 
+#' @param card_info Rule card parameters.
+#' @param polarity Polarity of the dataset.
+#'
+#' @return Returns the masses of the metabolite names.
+#'
+#' @noRd
+resolve_mass <- function(card_info, polarity) {
+  #adducts have to be added (at the moment only H+ and H-)
+  
+  if (card_info$input_type == "mass") {
+    m <- suppressWarnings(as.numeric(card_info$value))
+    if (!is.na(m)) return(round(m, 4))
+    return(NA)
+  }
+  idx <- which(METABOLITES$name == card_info$value)
+  if(card_info$is_mzPeak){
+    if (length(idx) == 1){
+      monoMass <- METABOLITES$monoMass[idx]
+      ifelse(card_info$polarity == "pos",monoMass <- monoMass + 1.008, monoMass <- monoMass - 1.008 )
+      return(monoMass)
+    }
+  }
+  else{
+    if (length(idx) == 1) return(METABOLITES$NeutralLoss[idx])
+  }
+  
+  NA
+}
+
+#' Metabolite names and masses
+#'
+#' A dataframe containing common metabolites with their neutral loss and
+#' monoisotopic masses.
+#'
+#' @format A data frame with 9 obs. of  3 variables:
+#' \describe{
+#'   \item{name}{metabolite name}
+#'   \item{NeutralLoss}{value of the loss}
+#'   \item{monoMass}{monoisotopic mass (Da)}
+#' }
+METABOLITES <- data.frame(
+  name = c(
+    "Glucose", "Fructose", "Sucrose", "Lactate", "Pyruvate",
+    "Citrate", "Malate", "Water", "Phosphate"
+  ),
+  NeutralLoss = c(
+    162.0528, 162.0528, 162.0528, 72.0211, 43.9898,
+    174.0164, 116.0110, 18.0106, 97.9769
+  ),
+  # monoisotopic mass (Da)
+  monoMass = c(
+    180.0634, 180.0634, 342.1162, 90.0317, 88.0160,
+    192.0270, 134.0215, 18.0106, 97.9769
+  ),
+  stringsAsFactors = FALSE
+)

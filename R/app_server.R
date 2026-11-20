@@ -150,7 +150,8 @@ app_server <- function(input, output, session) {
   
   checked_features <- reactiveVal(NULL) 
   
-  mod_DreaMS_Network_server("mod_DreaMS_Network", ms2_file_path)
+  mod_DreaMS_Network_server("mod_DreaMS_Network", ms2_file_path, selected_feature_id, 
+                            reactive(analysis_results$results))
 
   #-----------------------------------------------------------------------------
   # ObserveEvent of Reactive Variables
@@ -534,13 +535,15 @@ app_server <- function(input, output, session) {
     h2(class = "app-title", paste0("MS2Search - ", state$screen))
   })
   
-  selected_feature_id <- reactive({
-    req(nrow(analysis_results$results) > 0)
-    req(input$featureTable_rows_selected)
-    
+  
+  observeEvent(input$featureTable_rows_selected,{
+
     res <- filtered_results()
-    res$FEATURE_ID[input$featureTable_rows_selected]
+    id <- res$FEATURE_ID[input$featureTable_rows_selected]
+    selected_feature_id(id)
   })
+
+  selected_feature_id <- reactiveVal("")
   
   
   #run Analysis with logging
@@ -589,10 +592,13 @@ app_server <- function(input, output, session) {
     log_state$file <- log_file
     
     print("Start running Analysis")
-    MetaboAPI <- MetaboAPI()
+    if(SelectedProjectID != "") MetaboAPI <- MetaboAPI()
     newMS2data <- state$newMS2data
     old_spectra <- analysis_results$spectra
+    
+    #Multisession Future
     future({
+      source("R/analysis_coordination.R", local = TRUE)
       
       write_log <- function(msg) {
         message(msg)
@@ -1174,7 +1180,6 @@ app_server <- function(input, output, session) {
             class = "toolbar-btn"
           )
         ),
-        div(mod_DreaMS_Network_ui("mod_DreaMS_Network")),
         div(
           class = "toolbar-right",
           
@@ -1282,10 +1287,15 @@ app_server <- function(input, output, session) {
   
   output$featureTable <- DT::renderDataTable({
     req(analysis_results$results)
-    spectrum_info <- add_checkboxes(table_data(), isolate(checked_features()))
+  
+    initial_data <- isolate({
+      req(table_data())
+      add_checkboxes(table_data(), checked_features())
+    })   
+    
     
     DT::datatable(
-      spectrum_info,
+      initial_data,
       selection = "single",
       class = "feature-table",
       rownames = FALSE,
@@ -1304,7 +1314,28 @@ app_server <- function(input, output, session) {
       DT::formatRound("score", 3)
   }, server = TRUE)
   
+  output$featureTableUI <- renderUI({
+    
+    if (is.null(analysis_results$results)) {
+      div(class = "placeholder-text","No results computed")
+    } else {DT::dataTableOutput("featureTable")}
+  })
+  
   proxy <- DT::dataTableProxy("featureTable")
+  
+  observeEvent(table_data(), {
+    req(table_data())
+    checked <- isolate(checked_features())
+
+    updated_info <- add_checkboxes(table_data(), checked)
+    
+    DT::replaceData(
+      proxy = proxy, 
+      data = updated_info, 
+      resetPaging = FALSE,
+      rownames = FALSE
+    )
+  }, ignoreInit = TRUE)
   
   # Checkbox toggles: only update the stored state, table is untouched
   observeEvent(input$feature_checkbox_change, {
@@ -1622,10 +1653,10 @@ app_server <- function(input, output, session) {
       req(nrow(analysis_results$results) > 0)
       featureID <- selected_feature_id()
 
-      spectrum_info <- analysis_results$spectra[analysis_results$spectra$FEATURE_KEY == featureID]
+      spectrum_info <- selected_spectrum()
       pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),spectraVariables(analysis_results$spectra))[1]
       adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
-      
+
       annotationDetails <- NULL
       
       # 1.using MetaboAnnotationData
@@ -1664,7 +1695,7 @@ app_server <- function(input, output, session) {
           primaryAnnotation.tool = "Decomposed Mass"
         )
       }
-
+      
       tagList(
         div(
           class = "flex-distance",
@@ -1700,7 +1731,6 @@ app_server <- function(input, output, session) {
               div(class = "detail-value", spectrum_info[[pol_col]])
           ) 
         ),
-        #plotlyOutput("interactive_spectrum"),
         mod_SpectrumVisualization_ui("spectrum_plot_mod"),
         DT::dataTableOutput("filter_results_tableDT"),
         actionButton("set_isotope_sum_Button", "Summarize Peaks"),

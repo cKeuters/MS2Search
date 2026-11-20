@@ -591,7 +591,17 @@ create_brkrrba_file <- function(settings_list, file_path){
 calculateFormulaFromMass <- function(mass, adduct, ppm = 5,
                                      max_el = "C100H150N10O20P2S2") {
   
-  
+  if (is.null(adduct) || is.na(adduct)) {
+    return(
+      data.frame(
+        formula = "-",
+        score = NA_real_,
+        exactmass = NA_real_,
+        ppm_error = NA_real_,
+        stringsAsFactors = FALSE
+      )
+    )
+  }
   neutral_mass <- MetaboCoreUtils::mz2mass(mass, adduct = adduct)[1]
   
   res <- Rdisop::decomposeMass(
@@ -642,6 +652,7 @@ calculateFormulaFromMass <- function(mass, adduct, ppm = 5,
   cand$ppm_error <- (as.numeric(cand$exactmass) - as.numeric(neutral_mass)) /
     as.numeric(neutral_mass) * 1e6
   cand[order(abs(cand$ppm_error)), , drop = FALSE]
+  cand[1, , drop = FALSE]
 }
 
 
