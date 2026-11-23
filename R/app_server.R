@@ -150,7 +150,8 @@ app_server <- function(input, output, session) {
   
   checked_features <- reactiveVal(NULL) 
   
-  mod_DreaMS_Network_server("mod_DreaMS_Network", ms2_file_path, selected_feature_id, 
+  mod_DreaMS_Network_server("mod_DreaMS_Network",NULL,
+                            ms2_file_path, selected_feature_id, 
                             reactive(analysis_results$results))
 
   #-----------------------------------------------------------------------------
@@ -598,7 +599,7 @@ app_server <- function(input, output, session) {
     
     #Multisession Future
     future({
-      source("R/analysis_coordination.R", local = TRUE)
+      #source("R/analysis_coordination.R", local = TRUE)
       
       write_log <- function(msg) {
         message(msg)
@@ -1650,7 +1651,7 @@ app_server <- function(input, output, session) {
       if (is.null(selected_feature_id())) {
         return(div(class = "placeholder-text", "Select Feature"))
       }
-      req(nrow(analysis_results$results) > 0)
+
       featureID <- selected_feature_id()
 
       spectrum_info <- selected_spectrum()

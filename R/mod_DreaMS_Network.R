@@ -26,53 +26,7 @@ mod_DreaMS_Network_ui <- function(id) {
         )
       )
     ),
-    # Button zentriert solange kein UMAP vorhanden
-    conditionalPanel(
-      condition = sprintf("!output['%s']", ns("has_umap")),
-      ns = ns,
-      div(
-        style = "text-align:center; margin-top:150px;",
-        actionButton(ns("getEmbeddings"), "Get Embeddings", class = "dreams-btn")
-      )
-    ),
-    
-    # Alles nur sichtbar wenn UMAP existiert
-    conditionalPanel(
-      condition = paste0("output.", ns("has_umap")),
-      ns = ns,
-      
-      div(
-        class = "dreams-controls",
-        radioButtons(
-          ns("color_mode"),
-          "Colour by",
-          choices = c(
-            "Spectra only" = "none",
-            "Score" = "score",
-            "Filter" = "filter"
-          ),
-          inline = TRUE
-        )
-      ),
-      
-      conditionalPanel(
-        condition = "input.color_mode == 'filter'",
-        ns = ns,
-        selectInput(
-          ns("filters"),
-          "Filters",
-          choices = NULL,
-          multiple = TRUE
-        )
-      ),
-      
-      plotly::plotlyOutput(ns("umap"), height = "600px"),
-      
-      div(
-        style = "margin-top:15px;",
-        actionButton(ns("getEmbeddings"), "Get Embeddings", class = "dreams-btn")
-      )
-    )
+    uiOutput(ns("embedding_ui"))
   )
 }
     
@@ -82,7 +36,7 @@ mod_DreaMS_Network_ui <- function(id) {
 #' @importFrom uwot umap 
 #'
 #' @noRd 
-mod_DreaMS_Network_server <- function(id, ms2_file_path_r, selected_feature_id_r, results_r){
+mod_DreaMS_Network_server <- function(id, Feature_keys, ms2_file_path_r, selected_feature_id_r, results_r){
   moduleServer(id, function(input, output, session){
     ns <- session$ns
 
@@ -155,13 +109,54 @@ mod_DreaMS_Network_server <- function(id, ms2_file_path_r, selected_feature_id_r
     })
     
     has_umap <- reactive({
-      !is.null(embeddings()) &&
-        nrow(embeddings()) > 0
+      !is.null(embeddings()) && nrow(embeddings()) > 0
     })
     
-    output$has_umap <- reactive({has_umap()})
-    outputOptions(output, "has_umap", suspendWhenHidden = FALSE)
+    output$embedding_ui <- renderUI({
 
+      if(has_umap()){
+        div(
+          div(
+            class = "dreams-controls",
+            radioButtons(
+              ns("color_mode"),
+              "Colour by",
+              choices = c(
+                "Spectra only" = "none",
+                "Score" = "score",
+                "Filter" = "filter"
+              ),
+              inline = TRUE
+            ),
+            conditionalPanel(
+              condition = "input.color_mode == 'filter'",
+              ns = ns,
+              selectInput(
+                ns("filters"),
+                "Filters",
+                choices = c("None"),
+                multiple = TRUE
+              )
+            )
+          ),
+          
+          
+          plotly::plotlyOutput(ns("umap"), height = "600px"),
+          
+          div(
+            style = "margin-top:15px;",
+            actionButton(ns("getEmbeddings"), "Get Embeddings", class = "dreams-btn")
+          )
+        )
+      }
+      else{
+        div(
+          style = "text-align:center; margin-top:150px;",
+          actionButton(ns("getEmbeddings"), "Get Embeddings", class = "dreams-btn")
+        )
+      }
+    })
+    
     output$dreams_online <- renderUI({
       
       online <- dreams_up()
@@ -187,20 +182,24 @@ mod_DreaMS_Network_server <- function(id, ms2_file_path_r, selected_feature_id_r
       
       coords <- uwot::umap(
         embeddings(),
-        n_neighbors = 15,
+        n_neighbors = 5,
         min_dist    = 0.1,
         metric      = "cosine",
         n_threads   = 4
       )
-      embed_df <- data.frame(id = embeddings()$id, x = coords[, 1], y = coords[, 2])
+      embed_df <- data.frame(id = Feature_keys, x = coords[, 1], y = coords[, 2])
       
-      df <- dplyr::left_join(
-        embed_df,
-        dplyr::select(results_r(), id = FEATURE_ID, score),
-        by = "id"
-      )
+      res <- results_r()
+      if (!is.null(res) && nrow(res) > 0) {
+        embed_df <- dplyr::left_join(
+          embed_df,
+          dplyr::select(res, id = FEATURE_ID, score),
+          by = "id"
+        )
+      }
+
       
-      df
+      embed_df
     })
     
     output$umap <- plotly::renderPlotly({
@@ -257,6 +256,8 @@ mod_DreaMS_Network_server <- function(id, ms2_file_path_r, selected_feature_id_r
         ed <- plotly::event_data("plotly_click", source = "umap")
         if (!is.null(ed$key)) selected_feature_id_r(ed$key[[1]])
       })
+      
+      p
     })
     
   
