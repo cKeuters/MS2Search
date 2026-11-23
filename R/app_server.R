@@ -150,7 +150,9 @@ app_server <- function(input, output, session) {
   
   checked_features <- reactiveVal(NULL) 
   
-  mod_DreaMS_Network_server("mod_DreaMS_Network",NULL,
+  feature_keys <- reactiveVal(NULL)
+  
+  mod_DreaMS_Network_server("mod_DreaMS_Network",feature_keys,
                             ms2_file_path, selected_feature_id, 
                             reactive(analysis_results$results))
 
@@ -163,7 +165,6 @@ app_server <- function(input, output, session) {
     basicFilterValues$mz_min <- input$mz_min
   })
   observeEvent(input$mz_max, {
-    basicFilterValues$mz_max <- input$mz_max
   })
   observeEvent(input$mz_priority, {
     basicFilterValues$mz_priority <- input$mz_priority
@@ -649,6 +650,8 @@ app_server <- function(input, output, session) {
       analysis_results$running <- FALSE
       analysis_results$log <- logs
       
+      feature_keys(analysis_results$spectra$FEATURE_KEY)
+      
     } %...!% {
       # error handler
       analysis_results$running <- FALSE
@@ -1097,6 +1100,7 @@ app_server <- function(input, output, session) {
         return()
       }
     }
+    feature_keys(analysis_results$spectra$FEATURE_KEY)
 
     x <- unlist(peaksData(analysis_results$spectra))[, "intensity"]
     x <- x[x > 0]

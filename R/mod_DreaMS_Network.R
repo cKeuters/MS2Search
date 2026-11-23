@@ -112,7 +112,18 @@ mod_DreaMS_Network_server <- function(id, Feature_keys, ms2_file_path_r, selecte
       !is.null(embeddings()) && nrow(embeddings()) > 0
     })
     
+    
+    
     output$embedding_ui <- renderUI({
+      
+      res <- results_r()
+      if(is.null(res)){
+        filters <- NULL
+      }else{
+        start_filtercols <- ifelse("metaboScape_ID" %in% colnames(res), 3, 2)
+        filters <- colnames(res)[start_filtercols:(ncol(res)-1)]
+      }
+      
 
       if(has_umap()){
         div(
@@ -131,11 +142,16 @@ mod_DreaMS_Network_server <- function(id, Feature_keys, ms2_file_path_r, selecte
             conditionalPanel(
               condition = "input.color_mode == 'filter'",
               ns = ns,
-              selectInput(
-                ns("filters"),
-                "Filters",
-                choices = c("None"),
-                multiple = TRUE
+              selectizeInput(
+                inputId = ns("filter_cols"),
+                label = "Filters",
+                choices  = filters,
+                selected = NULL,
+                multiple = TRUE,                 
+                options  = list(
+                  placeholder = "No filters selected",
+                  plugins     = list("remove_button")
+                )
               )
             )
           ),
@@ -176,6 +192,8 @@ mod_DreaMS_Network_server <- function(id, Feature_keys, ms2_file_path_r, selecte
     # Visualization of DreaMS
     #---------------------------------------------------------------------------
     
+    circle_idx <- reactiveVal(1L)
+    
     # data for the plot
     plot_df <- reactive({
       req(embeddings())
@@ -187,82 +205,204 @@ mod_DreaMS_Network_server <- function(id, Feature_keys, ms2_file_path_r, selecte
         metric      = "cosine",
         n_threads   = 4
       )
-      embed_df <- data.frame(id = Feature_keys, x = coords[, 1], y = coords[, 2])
+      if(is.null(Feature_keys())) keys <- as.character(1:nrow(embeddings())) else keys <- Feature_keys()
+      embed_df <- data.frame(id = keys, x = coords[, 1], y = coords[, 2])
       
       res <- results_r()
       if (!is.null(res) && nrow(res) > 0) {
+        start_filtercols <- ifelse("metaboScape_ID" %in% colnames(res), 3, 2)
+        filter_res <- res[, start_filtercols:(ncol(res) - 1), drop = FALSE]
+        
+        is_match <- function(x) {
+          if (is.list(x)) {
+            vapply(x, function(el) length(el) > 0 && !all(is.na(el)), logical(1))
+          } else {
+            !is.na(x) & x
+          }
+        }
+        
+        flags <- as.data.frame(lapply(filter_res, is_match), check.names = FALSE)
+        names(flags) <- paste0("f__", names(filter_res))
+        flags$id <- res$FEATURE_ID
+        
         embed_df <- dplyr::left_join(
-          embed_df,
-          dplyr::select(res, id = FEATURE_ID, score),
-          by = "id"
+          embed_df, dplyr::select(res, id = FEATURE_ID, score), by = "id"
         )
+        embed_df <- dplyr::left_join(embed_df, flags, by = "id")
       }
-
-      
       embed_df
     })
     
+      
     output$umap <- plotly::renderPlotly({
       req(plot_df())
-      
       df <- plot_df()
-      df$hover <- paste0(df$id, if ("score" %in% names(df)) paste0("<br>Score: ", round(df$score, 3)) else "")
       
-      p <- switch(
-        input$color_mode,
-        none = plotly::plot_ly(
-          df, x = ~x, y = ~y, key = ~id, text = ~hover, hoverinfo = "text",
-          source = "umap", type = "scattergl", mode = "markers",
-          marker = list(color = "grey60", size = 6, opacity = 0.7)
-        ),
-        score = plotly::plot_ly(
-          df, x = ~x, y = ~y, key = ~id, text = ~hover, hoverinfo = "text",
-          source = "umap", type = "scattergl", mode = "markers",
-          color = ~score, colors = "viridis",
-          marker = list(size = 6, opacity = 0.8)
-        ),
-        filter = {
-            # no filter chosen yet -> neutral
-            plotly::plot_ly(df, x = ~x, y = ~y, key = ~id, text = ~hover,
-                            hoverinfo = "text", source = "umap",
-                            type = "scattergl", mode = "markers",
-                            marker = list(color = "grey60", size = 6))
-        }
-      )
+      print("df")
+      print(df)
       
-      # highlight the currently selected spectrum
-      sel <- selected_feature_id_r()
-      if (!is.null(sel) && sel %in% df$id) {
-        s <- df[df$id == sel, ]
-        p <- plotly::add_markers(
-          p, data = s, x = ~x, y = ~y, key = NULL, inherit = FALSE,
-          showlegend = FALSE, hoverinfo = "skip",
-          marker = list(size = 14, color = "rgba(0,0,0,0)",
-                        line = list(color = "black", width = 2))
+      base_marker <- list(size = 9, line = list(color = "white", width = 1))
+      
+      # selected filters that exist as flag columns
+      fcols <- character(0)
+      if (input$color_mode == "filter") {
+        sel_filters <- input$filter_cols
+        
+        print("sel_filters")
+        print(sel_filters)
+        
+        sel_filters <- sel_filters[nzchar(sel_filters)] 
+        fcols <- intersect(paste0("f__", sel_filters), names(df))
+      }
+      
+      print("fcols")
+      print(fcols)
+      
+      # hover text
+      df$hover <- paste0("<b>", df$id, "</b>")
+      if ("score" %in% names(df)) {
+        df$hover <- paste0(df$hover, "<br>Score: ", round(as.numeric(df$score), 3))
+      }
+      if (length(fcols) > 0) {
+        F <- as.matrix(df[, fcols, drop = FALSE])
+        F[is.na(F)] <- FALSE
+        df$hover <- paste0(
+          df$hover, "<br>Filters: ",
+          vapply(seq_len(nrow(F)), function(i) {
+            m <- sub("^f__", "", fcols[F[i, ]])
+            if (length(m)) paste(m, collapse=", ") else "-"
+          }, character(1))
         )
       }
       
-      p |>
-        plotly::layout(
-          xaxis = list(title = "UMAP 1", zeroline = FALSE),
-          yaxis = list(title = "UMAP 2", zeroline = FALSE),
-          uirevision = "keep"   # keeps zoom/pan when colour mode or selection changes
-        ) |>
-        plotly::event_register("plotly_click")
+      p <- if (input$color_mode == "score") {
+        plotly::plot_ly(
+          df, x = ~x, y = ~y, key = ~id, text = ~hover, hoverinfo = "text",
+          source = "umap", type = "scattergl", mode = "markers",
+          marker = c(base_marker, list(
+            color = ~score, colorscale = "Viridis", opacity = 0.85,
+            colorbar = list(title = "Score", thickness = 10, len = 0.5, outlinewidth = 0)
+          ))
+        )
+      } else {
+        # grey base trace (carries hover + click)
+        plotly::plot_ly(
+          df, x = ~x, y = ~y, key = ~id, text = ~hover, hoverinfo = "text",
+          source = "umap", type = "scattergl", mode = "markers", showlegend = FALSE,
+          marker = c(base_marker, list(color = "#c5cad6", opacity = 0.8))
+        )
+      }
       
+      n_traces <- 1L
       
-      # click on a dot -> set selection
-      observeEvent(plotly::event_data("plotly_click", source = "umap"), {
-        ed <- plotly::event_data("plotly_click", source = "umap")
-        if (!is.null(ed$key)) selected_feature_id_r(ed$key[[1]])
-      })
+      if (length(fcols) > 0) {
+        pal <- stats::setNames(scales::hue_pal()(length(fcols)), fcols)
+        rank <- matrix(0L, nrow = nrow(F), ncol = ncol(F))
+        for (j in seq_len(ncol(F))) {
+          rank[, j] <- if (j == 1) F[, 1] else rowSums(F[, 1:j, drop = FALSE])
+        }
+        
+        rank <- rank * F
+        m <- rowSums(F)    # number of filters per dot
+        
+        if (length(fcols) == 1) { rank <- matrix(rank, ncol = 1); }
+        
+        for (i in seq_along(fcols)) {
+          rows <- which(F[, i])
+          if (length(rows) == 0) next
+          sizes <- 9 + 5 * (m[rows] - rank[rows, i])   # first filter = outer ring
+          p <- plotly::add_trace(
+            p, data = df[rows, ], x = ~x, y = ~y, key = NULL, inherit = FALSE,
+            type = "scattergl", mode = "markers",
+            name = sub("^f__", "", fcols[i]), showlegend = TRUE, hoverinfo = "skip",
+            marker = list(size = sizes, color = pal[[fcols[i]]],
+                          line = list(color = "white", width = 1))
+          )
+          n_traces <- n_traces + 1L
+        }
+      }
       
-      p
+      # selection circle = always the last trace
+      sel <- isolate(selected_feature_id_r())
+      idx <- match(as.character(sel), as.character(df$id))
+      has_sel <- !is.na(idx)
+      p <- plotly::add_trace(
+        p,
+        x = if (has_sel) df$x[idx] else df$x[1],
+        y = if (has_sel) df$y[idx] else df$y[1],
+        key = NULL, inherit = FALSE, type = "scattergl", mode = "markers",
+        visible = has_sel, showlegend = FALSE, hoverinfo = "skip",
+        marker = list(size = 30, color = "rgba(255,99,71,0.18)",
+                      line = list(color = "#e8553d", width = 2))
+      )
+      circle_idx(n_traces)        
+      
+      umap_layout(p) |>
+        plotly::layout(legend = list(orientation = "h", y = -0.05, x = 0.5, xanchor = "center"))
+    })
+   
+    
+    # click -> set selection
+    observeEvent(plotly::event_data("plotly_click", source = "umap"), {
+      ed <- plotly::event_data("plotly_click", source = "umap")
+      req(ed$key, Feature_keys())
+      selected_feature_id_r(ed$key[[1]])
     })
     
+    # selection changed (click or main server) -> only move the circle
+    observe({
+      sel <- selected_feature_id_r()
+      df  <- plot_df()
+      ci  <- circle_idx()
+      req(df)
+      
+      proxy <- plotly::plotlyProxy("umap", session)
+      idx   <- match(as.character(sel), as.character(df$id))
+      
+      if (is.na(idx)) {
+        plotly::plotlyProxyInvoke(proxy, "restyle", list(visible = FALSE), list(ci))
+      } else {
+        plotly::plotlyProxyInvoke(
+          proxy, "restyle",
+          list(x = list(list(df$x[idx])), y = list(list(df$y[idx])), visible = TRUE),
+          list(ci)
+        )
+      }
+    })
   
     
+    
   })
+}
+
+
+umap_layout <- function(p) {
+  axis_style <- list(
+    title = list(font = list(size = 12, color = "#8a8f98")),
+    showgrid = FALSE, zeroline = FALSE, showline = FALSE,
+    showticklabels = FALSE, ticks = ""
+  )
+  p |>
+    plotly::layout(
+      xaxis = c(axis_style, list(title = list(text = "UMAP 1", font = axis_style$title$font))),
+      yaxis = c(axis_style, list(title = list(text = "UMAP 2", font = axis_style$title$font))),
+      paper_bgcolor = "rgba(0,0,0,0)",
+      plot_bgcolor  = "white",
+      margin = list(l = 40, r = 10, t = 10, b = 40),
+      hoverlabel = list(
+        bgcolor = "white", bordercolor = "#d0d4dc",
+        font = list(size = 14, color = "#2b2f38")
+      ),
+      uirevision = "keep"
+    ) |>
+    plotly::config(
+      displaylogo = FALSE,
+      displayModeBar = "hover",
+      modeBarButtonsToRemove = c("select2d", "lasso2d", "autoScale2d",
+                                 "hoverClosestCartesian", "hoverCompareCartesian",
+                                 "toggleSpikelines")
+    ) |>
+    plotly::event_register("plotly_click")
 }
 
 #-------------------------------------------------------------------------------
