@@ -5,7 +5,7 @@ Authors@R:
     person("Carina", "Keuters", , "ckeuters@ipb-halle.de", role = c("aut", "cre"))
 Description: Rule based search in MS2 data with different approuches. A
     MetaboScape search file creation.
-License: MIT + file LICENSE
+License: Apache License (>= 2)
 URL: https://github.com/cKeuters/MS2Search
 BugReports: https://github.com/cKeuters/MS2Search/issues
 Depends: 

@@ -2,5 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
+MS2Search.Rproj
 dev/03_deploy.R
 dev/02_dev.R

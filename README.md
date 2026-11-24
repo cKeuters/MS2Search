@@ -1,59 +1,67 @@
+MS2Search is a Shiny app for the annotation from MS/MS (MS2) data by custom rules of the fragmentation pattern.
 
-<!-- README.md is generated from README.Rmd. Please edit that file -->
+## Features
 
-# `{MS2Search}`
-
-<!-- badges: start -->
-
-<!-- badges: end -->
+- Load MS2 spectra from MGF files (via the `Spectra` package)
+- Rule-based lipid identification: rules are JSON objects (neutral losses, fragment ions, chain compositions)
+- Interactive spectra view (neutral losses, chains, validations) and feature tables
+- Optional: spectral similarity and clustering with [DreaMS](https://github.com/pluskal-lab/DreaMS) embeddings (separate Docker service)
+- Optional: import of feature tables from MetaboScape via its REST API 
 
 ## Installation
 
-You can install the development version of `{MS2Search}` like so:
+### Option 1: R package
 
-``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+```r
+# install.packages("remotes")
+remotes::install_github("cKeuters/MS2Search")
 ```
 
-## Run
+Start the app:
 
-You can launch the application by running:
-
-``` r
+```r
 MS2Search::run_app()
 ```
 
-## About
+Without DreaMS, the cluster view is not available, everything else works.
 
-You are reading the doc about version : 0.0.0.9000
+### Option 2: Docker (with DreaMS)
 
-This README has been compiled on the
+The folder [`inst/deploy`](inst/deploy) contains a `Dockerfile` and a `docker-compose.yml` that start two services:
 
-``` r
-Sys.time()
-#> [1] "2026-07-30 10:01:01 UTC"
+| Service     | Description                                                        | Port |
+|-------------|--------------------------------------------------------------------|------|
+| `ms2search` | The Shiny app (R, based on `rocker/verse`, packages via `renv`)    | 80   |
+| `dreams`    | Python service (FastAPI/uvicorn) that computes DreaMS embeddings   | 8000 (internal) |
+
+The app reaches the DreaMS service via `DREAMS_URL=http://dreams:8000`. The DreaMS model checkpoint is downloaded from Zenodo during the image build, so no download is needed at runtime.
+
+```bash
+git clone https://github.com/cKeuters/MS2Search.git
+cd MS2Search
+docker compose -f inst/deploy/docker-compose.yml up --build -d
 ```
 
-Here are the tests results and package coverage:
+If the DreaMS service is not reachable, the app keeps running and only the DreaMS features are disabled.
 
-``` r
-devtools::check(quiet = TRUE)
-#> ══ Documenting ═════════════════════════════════════════════════════════════════
-#> ℹ Installed roxygen2 version (8.0.0) doesn't match declared (7.1.1)
-#> ✖ `check()` will not re-document this package.
-#> ℹ Do you need to re-run `document()`?
-#> ── R CMD check results ─────────────────────────────── MS2Search 0.0.0.9000 ────
-#> Duration: 1m 15.3s
-#> 
-#> ❯ checking top-level files ... NOTE
-#>   Non-standard file/directory found at top level:
-#>     ‘old_files’
-#> 
-#> 0 errors ✔ | 0 warnings ✔ | 1 note ✖
+## Usage
+
+1. **Load data.** Upload an MGF file with MS2 spectra or connect to a MetaboScape server.  
+2. **Choose rules.** Build Rules and chains you want to find in the data.
+4. **Inspect results.** Browse the feature table, open a feature to see its annotated spectrum, neutral losses and chain assignments.
+5. **Optional, DreaMS:** show the embeddings as a cluster plot, colored by score or by analysis filter. Clicking a point opens its details.
+
+
+## Development
+
+```r
+# install dependencies
+renv::restore()
+
+# run the app from source
+golem::run_dev()
+
+# checks and tests
+devtools::check()
 ```
 
-``` r
-covr::package_coverage()
-#> Error in `loadNamespace()`:
-#> ! there is no package called 'covr'
-```
