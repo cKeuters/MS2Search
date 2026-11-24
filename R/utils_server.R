@@ -151,7 +151,7 @@ load_project <- function(zip_path) {
   if (("results.csv" %in% list.files(tmp_dir))) {
     results <- read.csv(file.path(tmp_dir, "results.csv"))
     
-    results[] <- lapply(results, function(col) {
+    results[-1] <- lapply(results[-1], function(col) {
       if (is.character(col)) {
         lapply(col, function(x) {
           if (grepl("/", x, fixed = TRUE)) {
@@ -165,11 +165,15 @@ load_project <- function(zip_path) {
       }
     })
     colnames(results) <- gsub("\\.", " ", colnames(results))
+    
+    print("results")
+    print(head(results))
+    
   }
   spectra <- NULL
   if (("spectra.mgf.gz" %in% list.files(tmp_dir))) {
     spectra <- Spectra::Spectra(file.path(tmp_dir, "spectra.mgf.gz"), source = MsBackendMgf::MsBackendMgf())
-  }
+    }
   message("File loaded")
   unlink(tmp_dir, recursive = TRUE)
   return(list(settings_list = settings_list, res_settings = res_settings, results = results, spectra = spectra))

@@ -5,6 +5,7 @@ MS2Search is a Shiny app for the annotation from MS/MS (MS2) data by custom rule
 - Load MS2 spectra from MGF files (via the `Spectra` package)
 - Rule-based lipid identification: rules are JSON objects (neutral losses, fragment ions, chain compositions)
 - Interactive spectra view (neutral losses, chains, validations) and feature tables
+- Custom Rule based Annotation file for MetaboScape >= 2026b
 - Optional: spectral similarity and clustering with [DreaMS](https://github.com/pluskal-lab/DreaMS) embeddings (separate Docker service)
 - Optional: import of feature tables from MetaboScape via its REST API 
 
@@ -43,25 +44,4 @@ docker compose -f inst/deploy/docker-compose.yml up --build -d
 ```
 
 If the DreaMS service is not reachable, the app keeps running and only the DreaMS features are disabled.
-
-## Usage
-
-1. **Load data.** Upload an MGF file with MS2 spectra or connect to a MetaboScape server.  
-2. **Choose rules.** Build Rules and chains you want to find in the data.
-4. **Inspect results.** Browse the feature table, open a feature to see its annotated spectrum, neutral losses and chain assignments.
-5. **Optional, DreaMS:** show the embeddings as a cluster plot, colored by score or by analysis filter. Clicking a point opens its details.
-
-
-## Development
-
-```r
-# install dependencies
-renv::restore()
-
-# run the app from source
-golem::run_dev()
-
-# checks and tests
-devtools::check()
-```
 

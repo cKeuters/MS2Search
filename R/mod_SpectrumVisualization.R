@@ -211,7 +211,8 @@ nl_specs <- function(nl, colors) {
 
 points_spec <- function(p) {
   if (is.null(p) || nrow(p) == 0)
-    return(list(type = "scatter", mode = "markers", x = NA_real_, y = NA_real_,
+    return(list(type = "scatter", mode = "markers",
+                x = numeric(0), y = numeric(0),
                 hoverinfo = "skip", showlegend = FALSE))
   list(type = "scatter", mode = "markers+text",
        x = p$x, y = p$y * 1.05, text = p$text, textposition = "top center",
@@ -221,6 +222,7 @@ points_spec <- function(p) {
 }
 
 chain_points <- function(results, mz, intensities, ctx) {
+  if (!length(mz)) return(NULL)
   cols <- grep("chain", names(results))
   pts <- list()
   for (k in seq_len(min(length(cols), length(ctx$chain_calcs)))) {
@@ -232,9 +234,16 @@ chain_points <- function(results, mz, intensities, ctx) {
       matrix(ctx$tol(found), nrow(ref), length(found), byrow = TRUE)
     keep <- which(colSums(near) > 0)
     if (!length(keep)) next
+    
+    fk  <- found[keep]
+    pos <- vapply(fk, function(f) which.min(abs(mz - f)), integer(1))
+    ok  <- abs(mz[pos] - fk) <= ctx$tol(fk)
+    if (!any(ok)) next
+    keep <- keep[ok]; pos <- pos[ok]
+    
     col <- unname(ctx$colors[gsub("\\.", " ", names(results)[cols[k]])])
     pts[[length(pts) + 1]] <- data.frame(
-      x = found[keep], y = intensities[match(found[keep], mz)],
+      x = mz[pos], y = intensities[pos],
       text = vapply(keep, function(j) paste(ref$formula[near[, j]], collapse = " / "), ""),
       col = if (is.na(col)) "black" else col, stringsAsFactors = FALSE)
   }
@@ -294,15 +303,15 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
   
   category <- resolve_filter_category(mz, filter_results, ctx$priorities)
   category <- factor(category, levels = c("none", "Intensity Filter", ctx$levs))
-  
   nl <- neutral_losses_from_results(results, results$FEATURE_ID[1], ctx$rules_prepped,
                                     spectrum, tol = settings_list$basicFilters$minimum_dalton)
+  
   overlays <- list(
     nl    = nl_specs(nl, ctx$colors),
     chain = list(points_spec(chain_points(results, mz, intensities, ctx))),
     val   = list(points_spec(validation_points(results, mz, intensities, ctx)))
   )
-  
+
   # overlay traces come first -> their indices are known (0-based, as plotly.js expects)
   fig <- plot_ly()
   idx <- list(); n <- 0L
@@ -313,7 +322,7 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
       fig <- do.call(plotly::add_trace, c(list(p = fig), s, list(visible = grp %in% show)))
     n <- n + length(specs)
   }
-  
+
   fig <- fig %>%
     add_segments(x = spectrum$precursorMz, xend = spectrum$precursorMz, 
                  y = 0, yend = max(intensities),
@@ -327,6 +336,7 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
     
     if (!length(i)) next
     col <- unname(ctx$colors[lv])
+
     fig <- fig %>% add_segments(
       x = mz[i], xend = mz[i], y = 0, yend = intensities[i],
       name = lv, legendgroup = lv,
@@ -334,7 +344,7 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
       text = hover[i], hoverinfo = "text", showlegend = TRUE, inherit = FALSE
     )
   }
-  
+
   fig <- fig %>% layout(hovermode = "x", xaxis = list(title = "m/z"),
                         yaxis = list(title = "Intensity"))
   
@@ -366,6 +376,11 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
 #' @noRd
 resolve_filter_category <- function(mz, filter_results, filter_priority) {
   priority_levels <- c("low", "basic", "important", "required")
+  
+  keep_cols <- !sapply(filter_results, function(x) all(is.na(x)))
+  filter_results <- filter_results[, keep_cols, drop = FALSE]
+  filter_priority <- filter_priority[keep_cols]
+  
   rank <- match(filter_priority, priority_levels)
   rank[is.na(rank)] <- 1L
   

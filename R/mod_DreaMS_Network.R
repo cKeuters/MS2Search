@@ -237,26 +237,17 @@ mod_DreaMS_Network_server <- function(id, Feature_keys, ms2_file_path_r, selecte
     output$umap <- plotly::renderPlotly({
       req(plot_df())
       df <- plot_df()
-      
-      print("df")
-      print(df)
-      
+
       base_marker <- list(size = 9, line = list(color = "white", width = 1))
       
       # selected filters that exist as flag columns
       fcols <- character(0)
       if (input$color_mode == "filter") {
         sel_filters <- input$filter_cols
-        
-        print("sel_filters")
-        print(sel_filters)
-        
+
         sel_filters <- sel_filters[nzchar(sel_filters)] 
         fcols <- intersect(paste0("f__", sel_filters), names(df))
       }
-      
-      print("fcols")
-      print(fcols)
       
       # hover text
       df$hover <- paste0("<b>", df$id, "</b>")
@@ -343,12 +334,16 @@ mod_DreaMS_Network_server <- function(id, Feature_keys, ms2_file_path_r, selecte
    
     
     # click -> set selection
-    observeEvent(plotly::event_data("plotly_click", source = "umap"), {
-      ed <- plotly::event_data("plotly_click", source = "umap")
-      req(ed$key, Feature_keys())
-      selected_feature_id_r(ed$key[[1]])
-    })
-    
+    observeEvent(has_umap(), {
+      req(has_umap())
+      observeEvent(plotly::event_data("plotly_click", source = "umap"), {
+        ed <- plotly::event_data("plotly_click", source = "umap")
+        req(ed$key, Feature_keys())
+        selected_feature_id_r(ed$key[[1]])
+      })
+      
+    }, once = TRUE)
+
     # selection changed (click or main server) -> only move the circle
     observe({
       sel <- selected_feature_id_r()

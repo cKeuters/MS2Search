@@ -600,8 +600,7 @@ app_server <- function(input, output, session) {
     
     #Multisession Future
     future({
-      #source("R/analysis_coordination.R", local = TRUE)
-      
+
       write_log <- function(msg) {
         message(msg)
         cat(
@@ -1277,7 +1276,7 @@ app_server <- function(input, output, session) {
     res <- filtered_results()
 
     sd <- spectraData(analysis_results$spectra,
-                      columns = c("FEATURE_ID", "FEATURE_KEY", "precursorMz", "rtime"))
+                      columns = c("FEATURE_KEY", "precursorMz", "rtime"))
     info <- as.data.frame(sd[match(res$FEATURE_ID, sd$FEATURE_KEY),
                              c("FEATURE_KEY", "precursorMz", "rtime")])
     info$score <- res$score
@@ -1476,7 +1475,7 @@ app_server <- function(input, output, session) {
     row1 <- ifelse(as.logical(df[1, ]), tick, cross)
     df[1,] <- row1
     
-    precursorMz <- analysis_results$spectra[analysis_results$spectra$FEATURE_ID == featureID]$precursorMz
+    precursorMz <- analysis_results$spectra[analysis_results$spectra$FEATURE_KEY == featureID]$precursorMz
 
     #row 2 found values
     row2 <- vapply(res[,colnames(df)], function(x) {
@@ -1716,8 +1715,8 @@ app_server <- function(input, output, session) {
         ),
         div(class = "detail-row",
           div(
-              div(class = "detail-label", "Feature ID"),
-              div(class = "detail-value", as.character(spectrum_info$FEATURE_ID))
+              div(class = "detail-label", "Feature"),
+              div(class = "detail-value", as.character(spectrum_info$FEATURE_KEY))
           ),
           div(
               div(class = "detail-label", "m/z"),
