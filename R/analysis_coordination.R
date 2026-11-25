@@ -17,9 +17,6 @@
 #' @noRd
 load_spectra <- function(ms2_file, add_log = NULL){
   
-  #if(is.null(ms2_file))ms2_file <- "path/data/Test_dataset.mgf"
-  print(ms2_file)
-  
   sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
   sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
   sp <- getRT(sp)
@@ -244,6 +241,7 @@ run_analysis <- function(settings_list, sp, add_log){
             values = masses,
             losses_min = rule$min_repeat,
             losses_max = rule$max_repeat,
+            fixed_order = rule$fixed_order,
             rule_min_mz = rule$rule_mz_min,
             rule_max_mz = rule$rule_mz_max,
             tol_ppm = settings_list$basicFilters$tolerance_ppm,
@@ -494,6 +492,7 @@ calculate_adjustment_mass <- function(adjustment){
 #' @param values The values which are to be searched in the spectrum.
 #' @param losses_min The minimum number of sequential neutral losses (default 1).
 #' @param losses_max The maximum number of sequential neutral losses (default 1).
+#' @param fixed_order Defines that the order of input masses is set (default FALSE).
 #' @param tol_ppm Tolerance in ppm (default 10).
 #' @param tol_mz Tolerance in Dalton (default 0.1).
 #' @param rule_min_mz Minimum mz where to be searched (default NULL). 
@@ -506,7 +505,7 @@ calculate_adjustment_mass <- function(adjustment){
 #' @importFrom MsCoreUtils closest 
 #' @export
 find_neutralLosses <- function(peaks, precursor = NULL, values, losses_min = 1, 
-                               losses_max = 1, tol_ppm = 10, tol_mz = 0.1, 
+                               losses_max = 1, fixed_order = FALSE, tol_ppm = 10, tol_mz = 0.1, 
                                rule_min_mz = NULL, rule_max_mz = NULL, 
                                just_after_precursor = FALSE) {
 
@@ -517,22 +516,22 @@ find_neutralLosses <- function(peaks, precursor = NULL, values, losses_min = 1,
   if(!is.na(rule_max_mz) && !is.null(rule_max_mz))mz <- mz[mz < rule_max_mz]
   mz <- sort(mz[!is.na(mz)])
   
-  values <- sort(as.numeric(values))
+  values <- as.numeric(values)
   n_peaks <- length(mz)
   
   if (n_peaks < losses_min) return(numeric(0))
   
-  max_check <- losses_max + 1L
   live <- data.frame(anchor = seq_len(n_peaks), offset = 0)
 
   if(just_after_precursor) live <- live[live$anchor == which(mz == precursor),]
   run_length <- integer(n_peaks)
   
-  for (lvl in seq_len(max_check)) {
+  for (lvl in seq_len(losses_max)) {
     if (nrow(live) == 0) break
     
-    #each living chain plus each possible loss
-    cand <- merge(live, data.frame(delta = values))
+    
+    if(!fixed_order)cand <- merge(live, data.frame(delta = values)) #each living chain plus each possible loss
+    else cand <- merge(live, data.frame(delta = values[lvl])) 
     cand$offset_new <- cand$offset + cand$delta
     cand$target <- mz[cand$anchor] - cand$offset_new
     cand <- cand[order(cand$target), ]
@@ -549,7 +548,6 @@ find_neutralLosses <- function(peaks, precursor = NULL, values, losses_min = 1,
   }
   
   hit <- run_length >= losses_min & run_length <= losses_max
-
   mz[hit]
 }
 
@@ -659,7 +657,7 @@ calc_lipid_chain_masses <- function(chains){
   required_mods <- required_mods[!required_mods == ""]
   required_mods <- required_mods[!is.null(required_mods)]
   required_mods <- required_mods[!is.na(required_mods)]
-  
+
   mods_combinations <- c(
     list(""),
     unlist(
@@ -684,8 +682,7 @@ calc_lipid_chain_masses <- function(chains){
     optional_mod = mods_combinations
   )
   mod_H_correction <- length(required_mods)
-  
-  
+
   combos$H <- (2 * combos$C) + 2 - (2 * combos$DB) - mod_H_correction
   
   combos$formula <- mapply(
@@ -697,7 +694,10 @@ calc_lipid_chain_masses <- function(chains){
       )
 
       modDB <- sum(mod_DB, na.rm = TRUE)
-      mod_len <- if (length(optional_mod) == 0) {
+      mod_len <- if (
+        length(optional_mod) == 0 ||
+        (length(optional_mod) == 1 && optional_mod == "")
+      ) {
         0
       } else {
         length(optional_mod)
@@ -715,7 +715,7 @@ calc_lipid_chain_masses <- function(chains){
     combos$optional_mod
   )
   combos$formula <- gsub("=", "", combos$formula)
-
+  
   combos$formula <- unlist(lapply(combos$formula, function(formula){
     matches <- regmatches(formula, gregexpr("([A-Z][a-z]?)([0-9]*)", formula))[[1]]
     element_counts <- data.frame(matches = matches) %>%

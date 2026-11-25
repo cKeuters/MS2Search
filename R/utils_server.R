@@ -166,9 +166,6 @@ load_project <- function(zip_path) {
     })
     colnames(results) <- gsub("\\.", " ", colnames(results))
     
-    print("results")
-    print(head(results))
-    
   }
   spectra <- NULL
   if (("spectra.mgf.gz" %in% list.files(tmp_dir))) {

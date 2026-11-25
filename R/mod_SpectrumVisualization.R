@@ -149,6 +149,8 @@ prepare_plot_context <- function(settings_list) {
   bf    <- settings_list$basicFilters
   mode  <- settings_list$project_info$mode
   chains <- ld$chains
+  validations <- ld$validations
+  if(length(chains) == 0)validations <- NULL
   
   chain_calcs <- lapply(chains, calc_lipid_chain_masses)
   names(chain_calcs) <- vapply(chains, function(x) as.character(x$chain_id)[1], character(1))
@@ -156,7 +158,7 @@ prepare_plot_context <- function(settings_list) {
   headgroup_mass <- if (is.null(ld$head_group) || ld$head_group == "") 0
   else calculate_adjustment_mass(ld$head_group)
   
-  validations <- lapply(ld$validations, function(val) {
+  validation_values <- lapply(validations, function(val) {
     ids    <- setdiff(val$components, "Backbone")
     combos <- do.call(expand.grid, lapply(ids, function(id) chain_calcs[[as.character(id)]]$mass))
     masses <- rowSums(combos) + calculate_adjustment_mass(val$adjustments) +
@@ -173,11 +175,11 @@ prepare_plot_context <- function(settings_list) {
   list(
     rules_prepped = lapply(settings_list$specific_filters, prep_rule, mode = mode),
     chain_calcs   = chain_calcs,
-    validations   = validations,
+    validations   = validation_values,
     levs = levs, colors = colors,
     priorities = c(unlist(lapply(settings_list$specific_filters, function(x) x$rule_priority)),
                    unlist(lapply(chains, function(x) x$priority)),
-                   unlist(lapply(ld$validations, function(x) x$val_priority)),
+                   unlist(lapply(validations, function(x) x$val_priority)),
                    "low"),                      # for the intensity filter
     tol = function(x) pmax(x * bf$tolerance_ppm / 1e6, bf$minimum_dalton)
   )
@@ -221,14 +223,30 @@ points_spec <- function(p) {
        hoverinfo = "text", showlegend = FALSE)
 }
 
+#' @title Chain Points
+#'
+#' @description Compares the chain values found in the results with the
+#' corresponding chain masses and identifies the formula
+#' 
+#' @param results The results of the analysis.
+#' @param mz mz values of one spectra
+#' @param intensities intensities of the mz values
+#' @param ctx containing relevant data for plotting like calculated chains, colors, priorities, etc.
+#' 
+#' @return A dataframe containing the x and y coordinates, the chains formula and color
+#' 
+#' @noRd
 chain_points <- function(results, mz, intensities, ctx) {
   if (!length(mz)) return(NULL)
+  
   cols <- grep("chain", names(results))
   pts <- list()
+  
   for (k in seq_len(min(length(cols), length(ctx$chain_calcs)))) {
-    found <- as.numeric(unlist(results[[cols[k]]]))
+    found <- as.numeric(unlist(results[[cols[k]]])) #found values from results
     found <- unique(found[!is.na(found)])
     if (!length(found)) next
+    
     ref  <- ctx$chain_calcs[[k]]
     near <- abs(outer(ref$mass, found, "-")) <=
       matrix(ctx$tol(found), nrow(ref), length(found), byrow = TRUE)
@@ -250,25 +268,47 @@ chain_points <- function(results, mz, intensities, ctx) {
   if (length(pts)) do.call(rbind, pts) else NULL
 }
 
+#' @title Validation Points
+#'
+#' @description Compares the validation values found in the results with the
+#' corresponding validation masses and identifies the chains from which they
+#' were derived.
+#' 
+#' @param results The results of the analysis.
+#' @param mz mz values of one spectra
+#' @param intensities intensities of the mz values
+#' @param ctx containing relevant data for plotting like calculated chains, colors, priorities, etc.
+#' 
+#' @return A dataframe containing the x and y coordinates, the chain combination text and color
+#' 
+#' @noRd
 validation_points <- function(results, mz, intensities, ctx) {
   n_val <- length(ctx$validations)
   if (n_val == 0) return(NULL)
+  
   rn <- names(results)
   val_cols <- rn[(length(rn) - n_val):(length(rn) - 1)]
   pts <- list()
+  
+  #find the found chains for each validation
   for (k in seq_len(n_val)) {
-    found <- as.numeric(unlist(results[[val_cols[k]]]))
+    found <- as.numeric(unlist(results[[val_cols[k]]])) #found validation values from results
     found <- unique(found[!is.na(found)])
     if (!length(found)) next
-    v <- ctx$validations[[k]]
-    near <- abs(outer(v$masses, found, "-")) <=
-      matrix(ctx$tol(found), length(v$masses), length(found), byrow = TRUE)
+    
+    validation <- ctx$validations[[k]]
+    
+    #comparison of validation masses and found result values within tolerance
+    near <- abs(outer(validation$masses, found, "-")) <=
+      matrix(ctx$tol(found), length(validation$masses), length(found), byrow = TRUE)
     keep <- which(colSums(near) > 0)
     if (!length(keep)) next
+    
+    #Getting combination of chains for the validation
     pts[[length(pts) + 1]] <- data.frame(
       x = found[keep], y = intensities[match(found[keep], mz)],
       text = vapply(keep, function(j)
-        paste0(round(as.numeric(unlist(v$combos[which(near[, j])[1], ])),2), collapse = "+"), ""),
+        paste0(round(as.numeric(unlist(validation$combos[which(near[, j])[1], ])),2), collapse = "+"), ""),
       col = "#404040", stringsAsFactors = FALSE)
   }
   if (length(pts)) do.call(rbind, pts) else NULL
@@ -380,7 +420,7 @@ resolve_filter_category <- function(mz, filter_results, filter_priority) {
   keep_cols <- !sapply(filter_results, function(x) all(is.na(x)))
   filter_results <- filter_results[, keep_cols, drop = FALSE]
   filter_priority <- filter_priority[keep_cols]
-  
+
   rank <- match(filter_priority, priority_levels)
   rank[is.na(rank)] <- 1L
   

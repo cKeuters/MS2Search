@@ -446,7 +446,6 @@ chain_block_server <- function(id, module_id, init_chain, on_remove ) {
     
     observeEvent(input$db_max, {
       req(input$db_max)
-      print(input$db_max)
       max_db <- floor(chain_state$C_max / 2)
       v <- min(max(input$db_max, chain_state$DB_min), max_db)
       if (v != input$db_max) updateNumericInput(session, "db_max", value = v)

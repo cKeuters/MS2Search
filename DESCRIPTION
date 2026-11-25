@@ -1,6 +1,6 @@
 Package: MS2Search
 Title: Searching for specific fragmentation pattern in MS2 data
-Version: 0.1.3.2
+Version: 0.1.4
 Authors@R: 
     person("Carina", "Keuters", , "ckeuters@ipb-halle.de", role = c("aut", "cre"))
 Description: Rule based search in MS2 data with different approuches. A

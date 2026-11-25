@@ -15,7 +15,7 @@
 mod_Rules_ui <- function(id, card, metabolite_choices) {
   ns <- NS(id)
   card_class <- "peak-card"
-
+  
   div(class = "peak-card-wrap", id = paste0("wrap_", id),
       div(class = card_class,
           div(class = "card-header",
@@ -30,13 +30,13 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
           div(class = "card-body",
               div(class = "flex-distance",
                   div(class = "toggle-switch",
-                   tags$input(type = "checkbox", id = ns("peakToggle"), checked = if (isTRUE(card$is_mzPeak)) "checked" else NULL),
-                   div(class = "toggle-slider"),
-                   div(class = "toggle-labels",
-                       span(class = "toggle-label-left", "Neutral loss"),
-                       span(class = "toggle-label-right", "m/z peak")
-                   )
-              )),
+                      tags$input(type = "checkbox", id = ns("peakToggle"), checked = if (isTRUE(card$is_mzPeak)) "checked" else NULL),
+                      div(class = "toggle-slider"),
+                      div(class = "toggle-labels",
+                          span(class = "toggle-label-left", "Neutral loss"),
+                          span(class = "toggle-label-right", "m/z peak")
+                      )
+                  )),
               
               # --- Mass entries ---
               selectInput(ns("input_type"), "Input type",
@@ -60,7 +60,7 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
                       numericInput(ns("rule_mz_max"), "Maximum m/z value", value = card$rule_mz_max))
                 )
               ),
- 
+              
               checkboxInput(ns("filter_noise"), "Remove noise from MS2 spectrum before search", value = card$filter_noise),
               div(style = "text-align: center;", createPriorityRadioButtons(ns("rule_priority"), card$rule_priority))
               
@@ -68,7 +68,7 @@ mod_Rules_ui <- function(id, card, metabolite_choices) {
       )
   )
 }
-    
+
 #' @title Rules Server Function
 #'
 #' @description The Shiny Server module for one Rule card.
@@ -126,12 +126,20 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
       just_after_precursor = initial$just_after_precursor, 
       filter_noise = initial$filter_noise, 
       sequential = initial$sequential,
+      fixed_order = initial$fixed_order,
       next_card_id = initial$next_card_id,
       rule_priority = initial$rule_priority,
       rule_mz_min = initial$rule_mz_min,
       rule_mz_max = initial$rule_mz_max
     )
     
+    observeEvent(input$label, rule_state$label <- input$label, ignoreInit = TRUE)
+    observeEvent(input$rule_priority, rule_state$rule_priority <- input$rule_priority, ignoreInit = TRUE)
+    observeEvent(input$precursor, rule_state$just_after_precursor <- isTRUE(input$precursor), ignoreInit = TRUE)
+    observeEvent(input$filter_noise, rule_state$filter_noise <- isTRUE(input$filter_noise), ignoreInit = TRUE)
+    observeEvent(input$sequential, rule_state$sequential <- isTRUE(input$sequential), ignoreInit = TRUE)
+    observeEvent(input$rule_mz_min, rule_state$rule_mz_min <- input$rule_mz_min)
+    observeEvent(input$rule_mz_max, rule_state$rule_mz_max <- input$rule_mz_max)
     
     #--------------------------------------------------------------------------
     # Entry modules (mass/molecule name)
@@ -151,7 +159,9 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
     
     add_entry <- function(entry_init, defer_ui = FALSE) {
       eid <- as.character(entry_init$id)
-      entry_modules[[eid]] <- entryModuleServer(paste0("entry_", eid), entry_init, remove_entry)
+      
+      entry_modules[[eid]] <- entryModuleServer(paste0("entry_", eid), entry_init, remove_entry, 
+                                                disable_remove = reactive(rule_state$fixed_order))
       entry_ids(c(entry_ids(), eid))
       
       insert_entry_ui <- function() {
@@ -175,10 +185,39 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
     #adds all entries which come from the saved data
     isolate({ for (e in initial$entries) add_entry(e, defer_ui = TRUE) })
     
-   #gets the current mass entries value lists from their servers
+    #gets the current mass entries value lists from their servers
     current_entries <- reactive({
       lapply(entry_ids(), function(eid) entry_modules[[eid]]())
     })
+    
+    observeEvent({input$slider_order
+      input$slider},{
+        rule_state$fixed_order <- isTRUE(input$slider_order)
+        
+        shinyjs::toggleState(
+          id = "add_entry",
+          condition = !rule_state$fixed_order
+        )
+
+        req(rule_state$fixed_order == TRUE)
+        
+        entries <- reactiveValuesToList(entry_modules)
+        n_entries <- sum(!sapply(entries, is.null))
+
+        diff <- input$slider[2] - n_entries
+        if(diff > 0){
+          for(i in seq_len(diff)){
+            eid <- next_entry_id()
+            add_entry(list(id = eid, value = ""))
+            next_entry_id(eid + 1)
+          }
+        }
+        else if(diff < 0){
+          for(entry in tail(entry_ids(), abs(diff)))
+            remove_entry(entry)
+        }
+        
+      })
     
     #--------------------------------------------------------------------------
     # ObserveEvents & Toggle UI
@@ -201,7 +240,8 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
     
     output$sequential_slider_ui <- renderUI({
       req(input$sequential)
-      noUiSliderInput(
+      div(      
+        noUiSliderInput(
         inputId = ns("slider"),
         label = "Number of losses",
         min = 0,
@@ -212,20 +252,14 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
         tooltips = TRUE,
         pips = list(mode = "values", values = list(0, 10), density = 10),
         color = "#337ab7"
-      )
+      ),
+      checkboxInput(ns("slider_order"), label = "Set fixed order", value = rule_state$fixed_order))
     })
     
     observeEvent(input$peakToggle, {
       rule_state$is_mzPeak <- isTRUE(input$peakToggle)
     }, ignoreNULL = FALSE, ignoreInit = TRUE)
-  
-    observeEvent(input$label, rule_state$label <- input$label, ignoreInit = TRUE)
-    observeEvent(input$rule_priority, rule_state$rule_priority <- input$rule_priority, ignoreInit = TRUE)
-    observeEvent(input$precursor, rule_state$just_after_precursor <- isTRUE(input$precursor), ignoreInit = TRUE)
-    observeEvent(input$filter_noise, rule_state$filter_noise <- isTRUE(input$filter_noise), ignoreInit = TRUE)
-    observeEvent(input$sequential, rule_state$sequential <- isTRUE(input$sequential), ignoreInit = TRUE)
-    observeEvent(input$rule_mz_min, rule_state$rule_mz_min <- input$rule_mz_min)
-    observeEvent(input$rule_mz_max, rule_state$rule_mz_max <- input$rule_mz_max)
+    
     
     observeEvent(input$slider, {
       req(input$slider)
@@ -287,6 +321,7 @@ mod_Rules_server <- function(id, initial, polarity, on_delete, on_duplicate, met
            just_after_precursor = rule_state$just_after_precursor, 
            filter_noise = rule_state$filter_noise, 
            sequential = rule_state$sequential, 
+           fixed_order = rule_state$fixed_order,
            next_card_id = rule_state$next_card_id,
            rule_priority = rule_state$rule_priority,
            rule_mz_min = rule_state$rule_mz_min,
@@ -337,16 +372,31 @@ entryModuleUI <- function(id, entry, input_type, metabolite_choices) {
 #' @return Returns a list with the id and the value.
 #' 
 #' @noRd 
-entryModuleServer <- function(id, initial, on_remove) {
+entryModuleServer <- function(id, initial, on_remove, disable_remove) {
   moduleServer(id, function(input, output, session) {
     
     state <- reactiveValues(
       id = initial$id, 
       value = initial$value)
     
+    shinyjs::delay(100, {
+      shinyjs::toggleState(
+        id = "remove",
+        condition = !isTRUE(disable_remove())
+      )
+    })
+    
+    
     observeEvent(input$value, {
       state$value <- input$value
     }, ignoreInit = TRUE)
+    
+    observeEvent(disable_remove(),{
+        shinyjs::toggleState(
+          id = "remove",
+          condition = !disable_remove()
+        )
+    }, ignoreInit = FALSE) 
     
     observeEvent(input$remove, on_remove(initial$id), ignoreInit = TRUE)
     
@@ -357,70 +407,6 @@ entryModuleServer <- function(id, initial, on_remove) {
 
 
 
-#' @title Resolve metabolite name masses 
-#'
-#' @description Calculates the mass of metabolite names
-#' 
-#' @details
-#' Uses the dataframe METABOLITES to get the mass from a neutral loss or the 
-#' mz peak of the chosen entries.
-#' 
-#' @param card_info Rule card parameters.
-#' @param polarity Polarity of the dataset.
-#'
-#' @return Returns the masses of the metabolite names.
-#'
-#' @noRd
-resolve_mass <- function(card_info, polarity) {
-  #adducts have to be added (at the moment only H+ and H-)
-  
-  if (card_info$input_type == "mass") {
-    m <- suppressWarnings(as.numeric(card_info$value))
-    if (!is.na(m)) return(round(m, 4))
-    return(NA)
-  }
-  idx <- which(METABOLITES$name == card_info$value)
-  if(card_info$is_mzPeak){
-    if (length(idx) == 1){
-      monoMass <- METABOLITES$monoMass[idx]
-      ifelse(card_info$polarity == "pos",monoMass <- monoMass + 1.008, monoMass <- monoMass - 1.008 )
-      return(monoMass)
-    }
-  }
-  else{
-    if (length(idx) == 1) return(METABOLITES$NeutralLoss[idx])
-  }
-  
-  NA
-}
-
-#' Metabolite names and masses
-#'
-#' A dataframe containing common metabolites with their neutral loss and
-#' monoisotopic masses.
-#'
-#' @format A data frame with 9 obs. of  3 variables:
-#' \describe{
-#'   \item{name}{metabolite name}
-#'   \item{NeutralLoss}{value of the loss}
-#'   \item{monoMass}{monoisotopic mass (Da)}
-#' }
-METABOLITES <- data.frame(
-  name = c(
-    "Glucose", "Fructose", "Sucrose", "Lactate", "Pyruvate",
-    "Citrate", "Malate", "Water", "Phosphate"
-  ),
-  NeutralLoss = c(
-    162.0528, 162.0528, 162.0528, 72.0211, 43.9898,
-    174.0164, 116.0110, 18.0106, 97.9769
-  ),
-  # monoisotopic mass (Da)
-  monoMass = c(
-    180.0634, 180.0634, 342.1162, 90.0317, 88.0160,
-    192.0270, 134.0215, 18.0106, 97.9769
-  ),
-  stringsAsFactors = FALSE
-)
 
 #' @title Initial values of a new entry
 #' 
@@ -468,11 +454,12 @@ empty_card <- function(id) {
     max_repeat = 3,
     just_after_precursor = FALSE,
     sequential = FALSE,
+    fixed_order = FALSE,
     rule_priority = "basic",
     rule_mz_min = NULL,
     rule_mz_max = NULL,
     filter_noise = TRUE
-    )
+  )
 }
 
 
