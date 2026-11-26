@@ -14,15 +14,27 @@
 #'
 #' @importFrom Spectra Spectra spectraData
 #' @importFrom MsBackendMgf MsBackendMgf
+#' @importFrom MsBackendMsp MsBackendMsp
+#' @importFrom tools file_ext
+#' 
 #' @noRd
 load_spectra <- function(ms2_file, add_log = NULL){
-  
-  sp <- Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf())
-  sp$FEATURE_ID <- as.numeric(sp$FEATURE_ID)
+  ext <- tools::file_ext(ms2_file)
+  sp = switch(  
+    ext, 
+    "mgf" = Spectra::Spectra(ms2_file, source = MsBackendMgf::MsBackendMgf()),
+    "mzML" = Spectra::Spectra(ms2_file),
+    "msp" = Spectra::Spectra(ms2_file, source = MsBackendMsp::MsBackendMsp()),
+    return(NULL)
+  )
+
+  id_col <- intersect(c("FEATURE_ID", "spectrumId"),spectraVariables(sp))[1]
+  if(!is.na(id_col)) key <- sp[[id_col]] else key <- NULL
+
   sp <- getRT(sp)
+  if("PrecursorMZ"  %in% spectraVariables(sp)) sp$precursorMz <-as.numeric(sp$PrecursorMZ )
   
-  FEATURE_ID <- Spectra::spectraData(sp)$FEATURE_ID
-  if(length(FEATURE_ID) != length(unique(FEATURE_ID))){
+  if(length(key) != length(unique(key)) || is.null(key)){
     n_peaks <- lengths(Spectra::peaksData(sp))
     
     key <- paste(
@@ -32,8 +44,9 @@ load_spectra <- function(ms2_file, add_log = NULL){
       sep = "|"
     )
     sp$FEATURE_KEY <- key
-  }else sp$FEATURE_KEY <- FEATURE_ID
-  
+  }
+  sp$FEATURE_KEY <- key
+
   if(!is.null(add_log)) add_log(paste("Loaded MS2-file with ", length(sp)," spectra."))
 
   sp
@@ -140,8 +153,6 @@ createSpectradf <- function(operations, featureTableId){
 #' @importFrom MetaboCoreUtils calculateMass 
 #' @noRd
 run_analysis <- function(settings_list, sp, add_log){
-  #settings_list <- load_project("path/data/28.9.26_meeting2.zip")$settings_list
-
   #-----------------------------------------------------------------------------
   # Basic filters and checks
   #-----------------------------------------------------------------------------
@@ -154,7 +165,7 @@ run_analysis <- function(settings_list, sp, add_log){
     Spectra::filterEmptySpectra() 
   add_log(paste("Non-empty spectra with MS-level 2: ", length(sp)))
   
-  results <- data.frame(FEATURE_ID = Spectra::spectraData(sp)$FEATURE_ID)
+  results <- data.frame(FEATURE_ID = Spectra::spectraData(sp)$FEATURE_KEY)
   if(length(results$FEATURE_ID) != length(unique(results$FEATURE_ID))){
     results$FEATURE_ID <- Spectra::spectraData(sp)$FEATURE_KEY
   }
@@ -162,7 +173,7 @@ run_analysis <- function(settings_list, sp, add_log){
   if("metaboScape_ID" %in% Spectra::spectraVariables(sp)) results$metaboScape_ID <- Spectra::spectraData(sp)$metaboScape_ID
 
   #check mode
-  pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),Spectra::spectraVariables(sp))[1]
+  pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "Ion_mode", "polarity"),Spectra::spectraVariables(sp))[1]
   if(settings_list$project_info$mode == "pos") mode <- c("POS","Positive", "POSITIVE", "positive", 1) else mode <- c("NEG", "NEGATIVE", "negative", 0)
 
   if (length(pol_col) > 0) {
@@ -180,21 +191,30 @@ run_analysis <- function(settings_list, sp, add_log){
     
     results$mz_filter <- retained_vector
     if(settings_list$basicFilters$mz_priority == "required"){
-      results <- results[retained_vector,]
+      results <- results[retained_vector, , drop = FALSE]
       sp <- sp[retained_vector,]
     }
 
   #check RT
     all_RT <- Spectra::rtime(sp)
-    retained_vector <- all_RT >= settings_list$basicFilters$rt_min & all_RT <= settings_list$basicFilters$rt_max
-    retained_vector[is.na(retained_vector)] <- FALSE
-    add_log(paste0("Spectra in RT-Range (", settings_list$basicFilters$rt_min,", ", settings_list$basicFilters$rt_max, "): ", sum(retained_vector)))
-    results$rt_filter <- retained_vector
-    if(settings_list$basicFilters$rt_priority == "required"){
-      results <- results[retained_vector,]
-      sp <- sp[retained_vector,]
+    if (all(is.na(all_RT))) add_log("No Retention time found.")
+    else{
+      retained_vector <- all_RT >= settings_list$basicFilters$rt_min & all_RT <= settings_list$basicFilters$rt_max
+      retained_vector[is.na(retained_vector)] <- FALSE
+      add_log(paste0("Spectra in RT-Range (", settings_list$basicFilters$rt_min,", ", settings_list$basicFilters$rt_max, "): ", sum(retained_vector)))
+      
+      results$rt_filter <- retained_vector
+      if(settings_list$basicFilters$rt_priority == "required"){
+        results <- results[retained_vector, , drop = FALSE]
+        sp <- sp[retained_vector,]
+      }
     }
     
+    
+  if(nrow(results) == 0){
+    add_log("Zero Spectra left: Stopping Analysis")
+    return(NULL)
+  } 
   sp_cleaned <- cleaning_ref(sp, settings_list$basicFilters)
   
     
@@ -205,13 +225,12 @@ run_analysis <- function(settings_list, sp, add_log){
     add_log(paste0("Spectra in peak-count-range (", settings_list$basicFilters$n_peaks_min,", ", settings_list$basicFilters$n_peaks_max, "): ", sum(retained_vector)))
     results$peakCount_filter <- retained_vector
     if(settings_list$basicFilters$n_peaks_priority == "required"){
-      results <- results[retained_vector,]
+      results <- results[retained_vector, , drop = FALSE]
       sp <- sp[retained_vector,]
       sp_cleaned <- sp_cleaned[retained_vector,]
     }
     
-    
-    
+
   #-----------------------------------------------------------------------------
   # Rule filters
   #-----------------------------------------------------------------------------
@@ -257,7 +276,7 @@ run_analysis <- function(settings_list, sp, add_log){
       add_log(paste0("Spectra after ",rule$label,": ", sum(retained_vector)))
       results[[rule$label]] <- ladders
       if(rule$rule_priority == "required"){
-        results <- results[retained_vector,]
+        results <- results[retained_vector, , drop = FALSE]
         sp <- sp[retained_vector,]
         sp_cleaned <- sp_cleaned[retained_vector,]
         
@@ -274,7 +293,7 @@ run_analysis <- function(settings_list, sp, add_log){
       results[[rule$label]] <- found_mz
       if(rule$rule_priority == "required"){
         
-        results <- results[retained_vector,]
+        results <- results[retained_vector, , drop = FALSE]
         sp <- sp[retained_vector,]
         sp_cleaned <- sp_cleaned[retained_vector,]
       }
@@ -305,7 +324,7 @@ run_analysis <- function(settings_list, sp, add_log){
       chain_id <- chain_id + 1
 
       if(ld$priority == "required"){
-        results <- results[retained_vector,]
+        results <- results[retained_vector, , drop = FALSE]
         sp <- sp[retained_vector,]
         sp_cleaned <- sp_cleaned[retained_vector,]
         peaks_data <- Spectra::peaksData(sp_cleaned)
@@ -353,7 +372,7 @@ run_analysis <- function(settings_list, sp, add_log){
         
         if(val$val_priority == "required"){
           
-          results <- results[retained_vector,]
+          results <- results[retained_vector, , drop = FALSE]
           sp <- sp[retained_vector,]
           sp_cleaned <- sp_cleaned[retained_vector,]
         }
@@ -377,7 +396,7 @@ run_analysis <- function(settings_list, sp, add_log){
     )
     priorities <- unname(sapply(priorities, function(x) if (length(x) == 0) 0 else x))
     
-    start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2)
+    start_filtercols <- which(colnames(results) == "mz_filter")
     matches <- results[, start_filtercols:ncol(results)]
     
     is_match <- function(x) {
@@ -396,7 +415,7 @@ run_analysis <- function(settings_list, sp, add_log){
     matches <- as.matrix(matches)
     
     results$score <- rowSums((sweep(matches, MARGIN=2,priorities, `*`))) / sum(priorities)
-  
+    
     as.data.frame(results)
 }
 

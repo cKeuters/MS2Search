@@ -337,7 +337,7 @@ plottingSpectra <- function(spectrum, set_isotope_sum, settings_list, results,
   filtered_spectrum <- cleaning_ref(spectrum, settings_list$basicFilters)
   if (set_isotope_sum) results <- summarize_isotope_peaks(results, spectrum)
   
-  start_filtercols <- ifelse("metaboScape_ID" %in% colnames(results), 3, 2) + 3
+  start_filtercols <- which(colnames(results) == "peakCount_filter") + 1
   filter_results <- results[, start_filtercols:(ncol(results) - 1), drop = FALSE]
   filter_results[["Intensity Filter"]] <- list(setdiff(mz, unlist(filtered_spectrum$mz)))
   

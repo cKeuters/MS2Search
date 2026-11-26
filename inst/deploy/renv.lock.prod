@@ -481,6 +481,52 @@
       "Author": "RforMassSpectrometry Package Maintainer [cre], Laurent Gatto [aut] (ORCID: <https://orcid.org/0000-0002-1520-2268>), Johannes Rainer [aut] (ORCID: <https://orcid.org/0000-0002-6977-7147>), Sebastian Gibb [aut] (ORCID: <https://orcid.org/0000-0001-7406-4443>), Michael Witting [ctb] (ORCID: <https://orcid.org/0000-0002-1462-4426>), Adriano Rutz [ctb] (ORCID: <https://orcid.org/0000-0003-0443-9902>), Corey Broeckling [ctb] (ORCID: <https://orcid.org/0000-0002-6158-827X>)",
       "Maintainer": "RforMassSpectrometry Package Maintainer <maintainer@rformassspectrometry.org>"
     },
+    "MsBackendMsp": {
+      "Package": "MsBackendMsp",
+      "Version": "1.16.0",
+      "Source": "Bioconductor",
+      "Title": "Mass Spectrometry Data Backend for NIST msp Files",
+      "Authors@R": "c(person(given = \"Neumann\", family = \"Steffen\", role = c(\"aut\"), email = \"sneumann@ipb-halle.de\", comment = c(ORCID = \"0000-0002-7899-7192\")), person(given = \"Johannes\", family = \"Rainer\", email = \"Johannes.Rainer@eurac.edu\", role = c(\"aut\", \"cre\"), comment = c(ORCID = \"0000-0002-6977-7147\")), person(given = \"Michael\", family = \"Witting\", role = c(\"ctb\"), email = \"michael.witting@helmholtz-muenchen.de\", comment = c(ORCID = \"0000-0002-1462-4426\")) )",
+      "Description": "Mass spectrometry (MS) data backend supporting import and handling of MS/MS spectra from NIST MSP Format (msp) files. Import of data from files with different MSP *flavours* is supported. Objects from this package add support for MSP files to Bioconductor's Spectra package. This package is thus not supposed to be used without the Spectra package that provides a complete infrastructure for MS data handling.",
+      "Depends": [
+        "R (>= 4.1.0)",
+        "Spectra (>= 1.5.14)"
+      ],
+      "Imports": [
+        "ProtGenerics (>= 1.35.3)",
+        "BiocParallel",
+        "S4Vectors",
+        "IRanges",
+        "MsCoreUtils",
+        "methods",
+        "stats",
+        "data.table"
+      ],
+      "Suggests": [
+        "testthat",
+        "knitr (>= 1.1.0)",
+        "roxygen2",
+        "BiocStyle (>= 2.5.19)",
+        "rmarkdown"
+      ],
+      "License": "Artistic-2.0",
+      "Encoding": "UTF-8",
+      "VignetteBuilder": "knitr",
+      "BugReports": "https://github.com/RforMassSpectrometry/MsBackendMsp/issues",
+      "URL": "https://github.com/RforMassSpectrometry/MsBackendMsp",
+      "biocViews": "Infrastructure, Proteomics, MassSpectrometry, Metabolomics, DataImport",
+      "Roxygen": "list(markdown=TRUE)",
+      "RoxygenNote": "7.3.3",
+      "Collate": "'hidden_aliases.R' 'MsBackendMsp.R' 'functions-msp.R'",
+      "git_url": "https://git.bioconductor.org/packages/MsBackendMsp",
+      "git_branch": "RELEASE_3_23",
+      "git_last_commit": "9637e55",
+      "git_last_commit_date": "2026-04-28",
+      "Repository": "Bioconductor 3.23",
+      "NeedsCompilation": "no",
+      "Author": "Neumann Steffen [aut] (ORCID: <https://orcid.org/0000-0002-7899-7192>), Johannes Rainer [aut, cre] (ORCID: <https://orcid.org/0000-0002-6977-7147>), Michael Witting [ctb] (ORCID: <https://orcid.org/0000-0002-1462-4426>)",
+      "Maintainer": "Johannes Rainer <Johannes.Rainer@eurac.edu>"
+    },
     "MsCoreUtils": {
       "Package": "MsCoreUtils",
       "Version": "1.24.0",

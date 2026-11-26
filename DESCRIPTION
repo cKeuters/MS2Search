@@ -1,6 +1,6 @@
 Package: MS2Search
 Title: Searching for specific fragmentation pattern in MS2 data
-Version: 0.1.4
+Version: 0.1.5
 Authors@R: 
     person("Carina", "Keuters", , "ckeuters@ipb-halle.de", role = c("aut", "cre"))
 Description: Rule based search in MS2 data with different approuches. A
@@ -27,6 +27,7 @@ Imports:
     jsonlite,
     MetaboCoreUtils,
     MsBackendMgf,
+    MsBackendMsp,
     MsCoreUtils,
     parallelly,
     plotly,
@@ -36,6 +37,7 @@ Imports:
     Rdisop,
     readr,
     S4Vectors,
+    scales,
     shiny,
     shinyFiles,
     shinyjs,

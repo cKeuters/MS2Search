@@ -10,6 +10,7 @@ find_neutralLosses(
   values,
   losses_min = 1,
   losses_max = 1,
+  fixed_order = FALSE,
   tol_ppm = 10,
   tol_mz = 0.1,
   rule_min_mz = NULL,
@@ -27,6 +28,8 @@ find_neutralLosses(
 \item{losses_min}{The minimum number of sequential neutral losses (default 1).}
 
 \item{losses_max}{The maximum number of sequential neutral losses (default 1).}
+
+\item{fixed_order}{Defines that the order of input masses is set (default FALSE).}
 
 \item{tol_ppm}{Tolerance in ppm (default 10).}
 

@@ -259,11 +259,7 @@ app_server <- function(input, output, session) {
     } else {
       state$newMS2data <- TRUE
       MetaboSelectedProjectID("")
-      ext <- tools::file_ext(input$ms2_file$name)
-      MS2file_name(switch(ext,
-               mgf = input$ms2_file$name,
-               validate("Invalid file; Please upload a .mgf file (other file types are following)")
-        ))
+      MS2file_name(input$ms2_file$name)
       input$ms2_file$name
     }
   })
@@ -545,7 +541,7 @@ app_server <- function(input, output, session) {
     selected_feature_id(id)
   })
 
-  selected_feature_id <- reactiveVal("")
+  selected_feature_id <- reactiveVal(NULL)
   
   
   #run Analysis with logging
@@ -642,6 +638,7 @@ app_server <- function(input, output, session) {
     }) %...>% {
       # success handler
       logs <- paste(readLines(.$log_file, warn = FALSE), collapse = "\n")
+      if(state$newMS2data == TRUE) selected_feature_id(NULL)
       state$newMS2data <- FALSE
       
       analysis_results$spectra <- .$spectra
@@ -890,7 +887,7 @@ app_server <- function(input, output, session) {
                      div(
                        style = "min-width: 150px;",
                        fileInput("ms2_file", "MS2 Data", placeholder = ifelse(is.null(MS2file_info()),"No file selected", MS2file_info()),
-                                 accept = c(".mgf", ".msp", ".mzmine", ".mzTab")),
+                                 accept = c(".mgf", ".msp", ".mzML")),
                        
                      ),
                      actionButton("extract_ms2", "MS2 from MetaboScape API")
@@ -1087,6 +1084,10 @@ app_server <- function(input, output, session) {
     if(state$newMS2data){
       if(!is.null(ms2_path)) {
         analysis_results$spectra <- load_spectra(ms2_path)
+        if(is.null(analysis_results$spectra)){
+          showNotification("No valid file type")
+          return(NULL)
+        }
         state$newMS2data <- FALSE
         }
       else if(SelectedProjectID != ""){
@@ -1277,8 +1278,18 @@ app_server <- function(input, output, session) {
 
     sd <- spectraData(analysis_results$spectra,
                       columns = c("FEATURE_KEY", "precursorMz", "rtime"))
+    print(sd)
+    print("sd$FEATURE_KEY")
+    print(sd$FEATURE_KEY)
+    
+    print("res$FEATURE_ID")
+    print(res$FEATURE_ID)
+    
     info <- as.data.frame(sd[match(res$FEATURE_ID, sd$FEATURE_KEY),
                              c("FEATURE_KEY", "precursorMz", "rtime")])
+    print("info")
+    print(info)
+    
     info$score <- res$score
     info
   })
@@ -1384,8 +1395,12 @@ app_server <- function(input, output, session) {
     req(analysis_results$results)
     res <- analysis_results$results
 
-    start_filtercols <- ifelse("metaboScape_ID" %in% colnames(res), 3, 2)
-    matches <- res[, start_filtercols:(ncol(res)-1)]
+    start_filtercols <- which(colnames(res) == "mz_filter")
+    print(colnames(res))
+    print(paste("start_filtercols",start_filtercols))
+    print(paste("(ncol(res)-1)",(ncol(res)-1)))
+    
+    matches <- res[, start_filtercols:(ncol(res)-1), drop = FALSE]
     
     is_match <- function(x) {
       if (is.list(x)) {
@@ -1468,7 +1483,7 @@ app_server <- function(input, output, session) {
     tick  <- "<span style='color:green;font-weight:bold;'>&#10004;</span>"
     cross <- "<span style='color:red;font-weight:bold;'>&#10008;</span>"
 
-    df <- as.data.frame(filter_cols())[i_pos,]
+    df <- as.data.frame(filter_cols())[i_pos,,drop = FALSE]
     colnames(df) <- gsub("[\\._]", " ", colnames(df))
     
     # Row 1: match yes/no
@@ -1658,8 +1673,9 @@ app_server <- function(input, output, session) {
       featureID <- selected_feature_id()
 
       spectrum_info <- selected_spectrum()
-      pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "polarity"),spectraVariables(analysis_results$spectra))[1]
-      adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION"),spectraVariables(analysis_results$spectra))[1]
+      pol_col <- intersect(c("POLARITY", "IONMODE", "ionmode", "Ion_mode", "polarity"),spectraVariables(analysis_results$spectra))[1]
+      adduct_col <- intersect(c("Adduct", "adducts", "ADDUCT", "ION", "Precursor_type"),spectraVariables(analysis_results$spectra))[1]
+      adducts <- if(is.na(adduct_col)) "-" else paste(unlist(spectrum_info[[adduct_col]]), collapse = ", ")
 
       annotationDetails <- NULL
       
@@ -1687,7 +1703,7 @@ app_server <- function(input, output, session) {
       }
       
       # 3. calculate formula
-      if (is.null(annotationDetails)) {
+      if (is.null(annotationDetails) && !is.na(adduct_col)) {
         calculated_formulas <- calculateFormulaFromMass(
           spectrum_info$precursorMz,
           unlist(spectrum_info[[adduct_col]])[1]
@@ -1697,6 +1713,14 @@ app_server <- function(input, output, session) {
           primaryAnnotation.formula = calculated_formulas$formula[1],
           primaryAnnotation.name = "-",
           primaryAnnotation.tool = "Decomposed Mass"
+        )
+      }
+      if (is.null(annotationDetails)){
+        annotationDetails <- data.frame(
+          id = featureID,
+          primaryAnnotation.formula = "-",
+          primaryAnnotation.name = "-",
+          primaryAnnotation.tool = "-"
         )
       }
       
@@ -1728,7 +1752,7 @@ app_server <- function(input, output, session) {
           ),
           div(
               div(class = "detail-label", "Adduct"),
-              div(class = "detail-value", paste(unlist(spectrum_info[[adduct_col]]), collapse = ", "))
+              div(class = "detail-value", adducts)
           ),
           div(
               div(class = "detail-label", "Polarity"),

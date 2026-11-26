@@ -2,7 +2,7 @@ MS2Search is a Shiny app for the annotation from MS/MS (MS2) data by custom rule
 
 ## Features
 
-- Load MS2 spectra from MGF files (via the `Spectra` package)
+- Load MS2 spectra from MGF, mzML, MSP files or connect to a MetaboScape Server.
 - Rule-based lipid identification: rules are JSON objects (neutral losses, fragment ions, chain compositions)
 - Interactive spectra view (neutral losses, chains, validations) and feature tables
 - Custom Rule based Annotation file for MetaboScape >= 2026b
