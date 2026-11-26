@@ -1,4 +1,3 @@
-#plan(multisession)
 #' The application server-side
 #'
 #' @param input,output,session Internal parameters for {shiny}.
@@ -132,7 +131,9 @@ app_server <- function(input, output, session) {
   log_state <- reactiveValues(file = NULL)
   log_text <- reactiveVal("")
   
+  #optional inputs
   ms1_data <- reactiveVal(NULL)
+  sirius_data <- reactiveVal(NULL)
   
   #MetaboScape Authentification and Projects, Versions: "2025b" or "2026b"
   metaboAuth <- reactiveValues(
@@ -151,7 +152,6 @@ app_server <- function(input, output, session) {
   checked_features <- reactiveVal(NULL) 
   
   feature_keys <- reactiveVal(NULL)
-  
   mod_DreaMS_Network_server("mod_DreaMS_Network",feature_keys,
                             ms2_file_path, selected_feature_id, 
                             reactive(analysis_results$results))
@@ -237,9 +237,25 @@ app_server <- function(input, output, session) {
   observeEvent(input$mode,         { state$mode <- input$mode })
   observeEvent(input$project_name, { state$project_name <- input$project_name })
 
+  #MS1 data
   observeEvent(input$ms1_file,{
     ms1_data(read_csv(input$ms1_file$datapath))
   })
+  
+  #SIRIUS
+  observeEvent(input$sirius_file,{
+    path <- input$sirius_file$datapath
+    ext <- tools::file_ext(path)
+    sirius_data = switch(  
+      ext, 
+      "csv" = read_csv(path, col_select = c("mappingFeatureId", "molecularFormula", "NPC#class")),
+      "tsv" = read_tsv(path, col_select = c("mappingFeatureId", "molecularFormula", "NPC#class")),
+      return(NULL)
+    )
+    names(sirius_data)[names(sirius_data) == "NPC#class"] <- "NPC.class"
+    sirius_data(sirius_data)
+  })
+  
   
   #-----------------------------------------------------------------------------
   # ObserveEvent of Outputs and Buttons
@@ -391,6 +407,7 @@ app_server <- function(input, output, session) {
         analysis_results$res_settings,
         analysis_results$results,
         analysis_results$spectra,
+        sirius_data(),
         file)
     }
   )
@@ -450,6 +467,8 @@ app_server <- function(input, output, session) {
       state$screen <- "Results"
     }
     lipid_load_trigger(settings_list$lipid_definition)
+    
+    sirius_data(loaded_project$sirius_data)
     })
   
   #-----------------------------------------------------------------------------
@@ -546,7 +565,7 @@ app_server <- function(input, output, session) {
   
   #run Analysis with logging
   observeEvent(input$run_analysis, {
-    ms2_path <- input$ms2_file$datapath
+    ms2_path <- ms2_file_path()
     SelectedProjectID <- MetaboSelectedProjectID()
     inputs_valid <- lipid_definition()$is_valid
 
@@ -792,6 +811,7 @@ app_server <- function(input, output, session) {
     
     df <- as.data.frame(IntensityMatrix$intensities)
     colnames(df) <- lapply(samples$analysis, function(x) x$name)[[1]]
+    if(!"FEATURE_ID" %in% colnames(df)) showNotification("MS1 data has no column called 'FEATURE_ID'.")
     df$FEATURE_ID <- seq(nrow(df))
     ms1_data(df)
   }
@@ -876,10 +896,7 @@ app_server <- function(input, output, session) {
   # Setup Screen
   #-----------------------------------------------------------------------------
   
-  output$welcome_ui <- renderUI({ 
-    tagList(
-      fluidRow(
-        column(6,
+  output$requiredInputUI <- renderUI({ 
                div(class = "card required-card",
                    div(class = "required-badge", "Required"),
                    div(class = "card-title", "Required Inputs"),
@@ -900,37 +917,22 @@ app_server <- function(input, output, session) {
                    selectInput("mode", "Ionization Mode",
                                choices = c("Positive" = "pos", "Negative" = "neg"),
                                selected = state$mode)
-                   
-               ),
-               div(class = "flex-distance",
-                   actionButton("start_analysis", "Start Analysis",
-                                class = "process-btn"),
-                 div(id = "load_project_wrapper",
-                     fileInput("load_project_file", label = NULL, accept = ".zip",
-                               buttonLabel = tagList(icon("folder-open"), "Load Project"),
-                               placeholder = "")
-                 )
                )
-               
-        ),
-        
-        column(6,
-               div(class = "card optional-card",
-                   div(class = "optional-badge", "Optional"),
-                   div(class = "card-title", "Optional Inputs"),
-                   textInput("project_name", "Project Name",
-                             value = state$project_name,
-                             placeholder = "My Project"),
-                   fileInput("ms1_file", "MS1 Data (CSV)", accept = c(".csv")),
-                   
-                   fileInput("sirius_file", "Sirius Annotation",
-                             accept = c(".csv", ".tsv"))
-                   
+  })
+  output$optionalInputUI <- renderUI({ 
+           div(class = "card optional-card",
+           div(class = "optional-badge", "Optional"),
+           div(class = "card-title", "Optional Inputs"),
+           textInput("project_name", "Project Name",
+                     value = state$project_name,
+                     placeholder = "My Project"),
+           fileInput("ms1_file", "MS1 Data (CSV)", accept = c(".csv")),
+           
+           fileInput("sirius_file", "Sirius Annotation (canopus_formula_summary)",
+                     accept = c(".csv", ".tsv"))
+           
 
-               )
-        )
-      )
-    )     
+       )
 
     })
   
@@ -1078,7 +1080,7 @@ app_server <- function(input, output, session) {
   })
   
   output$distPlot <- plotly::renderPlotly({
-    ms2_path <- input$ms2_file$datapath
+    ms2_path <- ms2_file_path()
     SelectedProjectID <- MetaboSelectedProjectID()
     
     if(state$newMS2data){
@@ -1278,18 +1280,9 @@ app_server <- function(input, output, session) {
 
     sd <- spectraData(analysis_results$spectra,
                       columns = c("FEATURE_KEY", "precursorMz", "rtime"))
-    print(sd)
-    print("sd$FEATURE_KEY")
-    print(sd$FEATURE_KEY)
-    
-    print("res$FEATURE_ID")
-    print(res$FEATURE_ID)
     
     info <- as.data.frame(sd[match(res$FEATURE_ID, sd$FEATURE_KEY),
                              c("FEATURE_KEY", "precursorMz", "rtime")])
-    print("info")
-    print(info)
-    
     info$score <- res$score
     info
   })
@@ -1396,9 +1389,6 @@ app_server <- function(input, output, session) {
     res <- analysis_results$results
 
     start_filtercols <- which(colnames(res) == "mz_filter")
-    print(colnames(res))
-    print(paste("start_filtercols",start_filtercols))
-    print(paste("(ncol(res)-1)",(ncol(res)-1)))
     
     matches <- res[, start_filtercols:(ncol(res)-1), drop = FALSE]
     
@@ -1679,7 +1669,21 @@ app_server <- function(input, output, session) {
 
       annotationDetails <- NULL
       
-      # 1.using MetaboAnnotationData
+      # 1. SIRIUS annotations
+      if (!is.null(sirius_data())) {
+        sirius_data <- sirius_data()
+        sirius_data <- sirius_data[as.character(sirius_data$mappingFeatureId) == featureID,, drop = FALSE]
+        if(nrow(sirius_data) != 0){
+          annotationDetails <- data.frame(
+            id = featureID,
+            primaryAnnotation.formula = sirius_data$molecularFormula,
+            primaryAnnotation.name = paste("NPC class:", sirius_data[["NPC.class"]]),
+            primaryAnnotation.tool = "SIRIUS"
+          )
+        }
+      }
+      
+      # 2.using MetaboAnnotationData
       if (!is.null(MetaboAnnotationData())) {
         tmp <- MetaboAnnotationData()[featureID, , drop = FALSE]
         if (nrow(tmp) > 0 && !is.na(tmp$primaryAnnotation.formula)) {
@@ -1687,7 +1691,7 @@ app_server <- function(input, output, session) {
         }
       }
       
-      # 2. formula from mgf
+      # 3. formula from mgf
       if (is.null(annotationDetails) &&
           "FORMULA" %in% spectraVariables(spectrum_info)) {
         annotationDetails <- data.frame(
@@ -1702,7 +1706,7 @@ app_server <- function(input, output, session) {
         )
       }
       
-      # 3. calculate formula
+      # 4. calculate formula
       if (is.null(annotationDetails) && !is.na(adduct_col)) {
         calculated_formulas <- calculateFormulaFromMass(
           spectrum_info$precursorMz,
@@ -1715,6 +1719,7 @@ app_server <- function(input, output, session) {
           primaryAnnotation.tool = "Decomposed Mass"
         )
       }
+      # 5. empty formula
       if (is.null(annotationDetails)){
         annotationDetails <- data.frame(
           id = featureID,
@@ -1762,7 +1767,7 @@ app_server <- function(input, output, session) {
         mod_SpectrumVisualization_ui("spectrum_plot_mod"),
         DT::dataTableOutput("filter_results_tableDT"),
         actionButton("set_isotope_sum_Button", "Summarize Peaks"),
-        plotOutput("ms1_plot")
+        if(!is.null(ms1_data())) plotOutput("ms1_plot")
       )
     })
 

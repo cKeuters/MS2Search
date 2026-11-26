@@ -70,11 +70,12 @@ create_settings_list <- function(state, basicFilterValues, toolSettings, cards, 
 #' @param settings_list settings parameters
 #' @param results dataframe of analysis results of the filters and chains.
 #' @param spectra Spectra object of the ms2 spectra
+#' @param sirius_data Dataframe with mappingFeatureId, molecularFormula and NPC#class
 #' @param output_zip_path_file path where to save
 #'
 #' @importFrom jsonlite write_json
 #' @noRd
-setup_and_save_project <- function(settings_list, res_settings, results, spectra, output_zip_path_file) {
+setup_and_save_project <- function(settings_list, res_settings, results, spectra, sirius_data, output_zip_path_file) {
   print(output_zip_path_file)
   tmp_dir <- tempfile("CeraSearch_save_dir")
   dir.create(tmp_dir)
@@ -104,7 +105,9 @@ setup_and_save_project <- function(settings_list, res_settings, results, spectra
     jsonlite::write_json(res_settings, file.path(tmp_dir, "res_settings.json"), auto_unbox = TRUE)
     
   }
-  
+  if(!is.null(sirius_data)){
+    write.csv(as.data.frame(sirius_data), row.names = FALSE, file.path(tmp_dir, "sirius.csv"))
+  }
 
 
   #zip files
@@ -170,10 +173,21 @@ load_project <- function(zip_path) {
   spectra <- NULL
   if (("spectra.mgf.gz" %in% list.files(tmp_dir))) {
     spectra <- Spectra::Spectra(file.path(tmp_dir, "spectra.mgf.gz"), source = MsBackendMgf::MsBackendMgf())
-    }
+  }
+  
+  sirius_data <- NULL
+  if (("sirius.csv" %in% list.files(tmp_dir))) {
+    sirius_data <- read.csv(file.path(tmp_dir, "sirius.csv"))
+  }
+  
   message("File loaded")
   unlink(tmp_dir, recursive = TRUE)
-  return(list(settings_list = settings_list, res_settings = res_settings, results = results, spectra = spectra))
+  return(list(
+    settings_list = settings_list,
+    res_settings = res_settings, 
+    results = results, 
+    spectra = spectra,
+    sirius_data = sirius_data ))
 }
 
 
@@ -588,11 +602,12 @@ create_brkrrba_file <- function(settings_list, file_path){
 #' 
 #' @importFrom Rdisop decomposeMass
 #' @importFrom MetaboCoreUtils mz2mass
+#' @importFrom MetaboCoreUtils adducts
 #' @noRd
 calculateFormulaFromMass <- function(mass, adduct, ppm = 5,
                                      max_el = "C100H150N10O20P2S2") {
   
-  if (is.null(adduct) || is.na(adduct)) {
+  if (is.null(adduct) || is.na(adduct) || !adduct %in% MetaboCoreUtils::adducts()$name) {
     return(
       data.frame(
         formula = "-",

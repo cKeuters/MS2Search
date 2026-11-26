@@ -14,6 +14,8 @@ MS2Search is a Shiny app for the annotation from MS/MS (MS2) data by custom rule
 ### Option 1: R package
 
 ```r
+# install.packages("BiocManager")
+# options(repos = BiocManager::repositories())
 # install.packages("remotes")
 remotes::install_github("cKeuters/MS2Search")
 ```

@@ -26,7 +26,24 @@ app_ui <- function(request) {
           # Welcome screen
           shinyjs::hidden(
             div(id = "welcome_screen",
-                uiOutput("welcome_ui"))
+                tagList(
+                  fluidRow(
+                    column(6,
+                           uiOutput("requiredInputUI"),
+                           div(class = "flex-distance",
+                               actionButton("start_analysis", "Start Analysis",
+                                            class = "process-btn"),
+                               div(id = "load_project_wrapper",
+                                   fileInput("load_project_file", label = NULL, accept = ".zip",
+                                             buttonLabel = tagList(icon("folder-open"), "Load Project"),
+                                             placeholder = "")
+                               )
+                           )),
+                    column(6,
+                           uiOutput("optionalInputUI"))
+                  )
+                )
+            )
           ),
           
           # Analysis screen
@@ -93,7 +110,6 @@ app_ui <- function(request) {
                                                "Select Filters that have to be passed:",
                                                choices = NULL)
                           ),
-                          #DT::dataTableOutput("featureTable")
                           uiOutput("featureTableUI")
                           
                         )

@@ -12,7 +12,7 @@
 ######################################
 
 # Test your app
-golem::set_golem_version("0.1.5")
+golem::set_golem_version("0.1.6")
 
 ## Run checks ----
 ## Check the package before sending to prod
